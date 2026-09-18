@@ -89,10 +89,20 @@ class Player {
     void source;
   }
 
+  /**
+   * Move instantly, without a visible streak: the renderer blends between the
+   * last two physics positions, so a teleport must reset both or the camera
+   * sweeps across the map for one step.
+   */
+  teleport(pos) {
+    this.controller.position = [pos[0], pos[1], pos[2]];
+    this.controller.velocity = [0, 0, 0];
+    this.prevPosition = [pos[0], pos[1], pos[2]];
+  }
+
   respawn() {
     this.deaths = (this.deaths || 0) + 1;
-    this.controller.position = [...this.spawnPoint];
-    this.controller.velocity = [0, 0, 0];
+    this.teleport(this.spawnPoint);
     // Deliberately keep the player's current yaw/pitch. Snapping the camera
     // back on respawn reads as the game wrestling the mouse away from you.
     this.angles[0] = 0;

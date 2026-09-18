@@ -308,13 +308,16 @@ export class Ragdoll {
 
       const trace = world.traceBox(prev, p, half);
       if (trace.startSolid) {
-        // Buried in geometry. Lift out, and zero the velocity rather than
-        // letting the lift accumulate into one — repeated per iteration it
-        // would otherwise read as tens of m/s of upward motion.
-        const lifted = [prev[0], prev[1] + radius * 0.5, prev[2]];
-        this.positions[i] = lifted;
-        this.previous[i] = [lifted[0], lifted[1], lifted[2]];
-        this.contacts[i] = [0, 1, 0];
+        // Buried in geometry. Push out through the nearest face (the trace
+        // reports which, and how far), and zero the velocity rather than
+        // letting the push accumulate into one — repeated per iteration it
+        // would otherwise read as tens of m/s of motion. Always lifting
+        // straight up instead would drag a limb caught in a wall up the wall.
+        const depth = Number.isFinite(trace.startDepth) ? trace.startDepth : radius * 0.5;
+        const out = add(prev, mul(trace.normal, depth + 0.002));
+        this.positions[i] = out;
+        this.previous[i] = [out[0], out[1], out[2]];
+        this.contacts[i] = trace.normal;
         continue;
       }
       if (!trace.hit) continue;

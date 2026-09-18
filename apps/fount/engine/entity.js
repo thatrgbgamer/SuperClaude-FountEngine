@@ -34,7 +34,9 @@ export class Entity {
     this.name = data.name || '';
     this.origin = data.origin ? [...data.origin] : [0, 0, 0];
     this.angles = data.angles ? [...data.angles] : [0, 0, 0];
-    this.connections = data.connections || [];
+    // Copied, not shared: fireOutput() marks `once` connections as fired on
+    // the connection object, and restart() re-spawns from the same map JSON.
+    this.connections = (data.connections || []).map((c) => ({ ...c }));
     this.kv = { ...data };
     this.removed = false;
     this.enabled = data.enabled !== false;

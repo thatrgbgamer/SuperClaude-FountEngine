@@ -121,8 +121,10 @@ export class NetClient {
         this.anticheat = msg.anticheat || 'unknown';
         this.status(`Joined ${msg.serverName} as ${this.name}`);
         for (const p of msg.players || []) this.upsert(p);
-        if (msg.map && msg.map !== game.currentMapPath) this.loadServerMap(msg.map);
-        if (msg.spawn) this.teleportSelf(msg.spawn);
+        // A map load builds a fresh Player, so the spawn has to be applied
+        // after it lands, not before.
+        if (msg.map && msg.map !== game.currentMapPath) this.loadServerMap(msg.map, msg.spawn);
+        else if (msg.spawn) this.teleportSelf(msg.spawn);
         break;
 
       case 'join':
@@ -232,7 +234,7 @@ export class NetClient {
         break;
 
       case 'map':
-        this.loadServerMap(msg.map);
+        this.loadServerMap(msg.map, msg.spawn);
         break;
 
       default:
@@ -241,18 +243,22 @@ export class NetClient {
 
   /** Move the local player where the server says, without fighting collision. */
   teleportSelf(pos) {
-    const c = this.game.player.controller;
-    c.position = [pos[0], pos[1], pos[2]];
-    c.velocity = [0, 0, 0];
-    this.game.prevPosition = [...c.position];
+    this.game.player.teleport(pos);
     this.reportSelf(true);
   }
 
-  loadServerMap(mapPath) {
+  /** Load (or restart) the server's map, then stand where the server put us. */
+  loadServerMap(mapPath, spawn = null) {
     const game = this.game;
-    if (game.currentMapPath === mapPath) { game.restart(); return; }
+    if (game.currentMapPath === mapPath) {
+      game.restart();
+      if (spawn) this.teleportSelf(spawn);
+      return;
+    }
     this.status(`Loading ${mapPath}...`);
-    game.load(mapPath).catch((err) => this.status(`Map load failed: ${err.message}`));
+    game.load(mapPath)
+      .then(() => { if (spawn) this.teleportSelf(spawn); })
+      .catch((err) => this.status(`Map load failed: ${err.message}`));
   }
 
   upsert(snap) {

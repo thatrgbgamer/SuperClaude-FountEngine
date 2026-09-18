@@ -9,7 +9,9 @@ import { dot, sub, add, mul, norm, len, lenSq, clamp } from './math.js';
 const EPS = 0.001;
 
 export function makeTrace() {
-  return { fraction: 1, normal: [0, 1, 0], hit: false, startSolid: false, entity: null, endPos: [0, 0, 0] };
+  // startDepth is how far a start-solid box has to move along `normal` to
+  // get back out; movers use it to escape geometry they've been pushed into.
+  return { fraction: 1, normal: [0, 1, 0], hit: false, startSolid: false, startDepth: Infinity, entity: null, endPos: [0, 0, 0] };
 }
 
 function boxesOverlap(aMin, aMax, bMin, bMax) {
@@ -23,6 +25,9 @@ function clipBoxToBrush(brush, start, end, halfExtents, trace) {
   let leaveFrac = 1;
   let clipNormal = null;
   let startsOut = false;
+  // The least-penetrated plane is the shortest way back out if we start solid.
+  let exitNormal = null;
+  let exitDepth = Infinity;
 
   for (const plane of brush.planes) {
     const n = plane.n;
@@ -34,14 +39,24 @@ function clipBoxToBrush(brush, start, end, halfExtents, trace) {
     const d2 = dot(n, end) - planeDist;
 
     if (d1 > 0) startsOut = true;
-    if (d1 > 0 && d2 >= 0) return false; // never crosses into the brush
+    else if (-d1 < exitDepth) { exitDepth = -d1; exitNormal = n; }
+
+    // Never crosses into the brush: in front of this face for the whole move,
+    // or moving away from it. A move that *ends* inside the epsilon band still
+    // counts as a contact — otherwise a box resting against a wall could creep
+    // through the band in sub-epsilon steps and end up inside the geometry.
+    if (d1 > 0 && (d2 >= EPS || d2 >= d1)) return false;
     if (d1 <= 0 && d2 <= 0) continue;    // stays inside this plane's halfspace
 
     if (d1 > d2) {
-      const f = (d1 - EPS) / (d1 - d2);
+      // Already within EPS of the face: treat it as touching at fraction 0
+      // rather than a negative fraction, which the > -1 test below would drop.
+      let f = (d1 - EPS) / (d1 - d2);
+      if (f < 0) f = 0;
       if (f > enterFrac) { enterFrac = f; clipNormal = n; }
     } else {
-      const f = (d1 + EPS) / (d1 - d2);
+      let f = (d1 + EPS) / (d1 - d2);
+      if (f > 1) f = 1;
       if (f < leaveFrac) leaveFrac = f;
     }
   }
@@ -50,7 +65,10 @@ function clipBoxToBrush(brush, start, end, halfExtents, trace) {
     trace.startSolid = true;
     trace.fraction = 0;
     trace.hit = true;
-    trace.normal = [0, 1, 0];
+    if (exitDepth < trace.startDepth) {
+      trace.startDepth = exitDepth;
+      trace.normal = exitNormal;
+    }
     return true;
   }
 
@@ -166,9 +184,15 @@ export function slideMove(world, position, velocity, halfExtents, dt, maxIterati
     const trace = world.traceBox(pos, end, halfExtents);
 
     if (trace.startSolid) {
-      // Nudge up out of the floor rather than freezing in place.
-      pos = [pos[0], pos[1] + 0.01, pos[2]];
-      break;
+      // Inside geometry: push back out through the nearest face and clip the
+      // velocity against it, then carry on with the move. Nudging blindly
+      // upward here is what let a player wedged against a wall climb it.
+      const depth = Number.isFinite(trace.startDepth) ? trace.startDepth : 0;
+      pos = add(pos, mul(trace.normal, depth + EPS));
+      vel = clipVelocity(vel, trace.normal);
+      blocked = true;
+      hitNormal = trace.normal;
+      continue;
     }
 
     pos = trace.endPos;
@@ -221,12 +245,37 @@ export class CharacterController {
     this.justJumped = false;
   }
 
+  // Probe for walkable ground and settle onto it. A mover that was already on
+  // the ground probes a full step down, so walking off a stair tread follows
+  // the stairs instead of hopping off each one; anything airborne only gets
+  // the short probe, so it can't be sucked onto a floor it hasn't reached.
   checkGround(world) {
-    const below = [this.position[0], this.position[1] - 0.08, this.position[2]];
-    const trace = world.traceBox(this.position, below, this.halfExtents);
     const wasOnGround = this.onGround;
-    this.onGround = trace.hit && trace.normal[1] >= GROUND_NORMAL_Y && this.velocity[1] <= 0.1;
-    if (this.onGround) this.groundNormal = trace.normal;
+    const probe = wasOnGround ? this.stepHeight : 0.08;
+    const probeDown = () => world.traceBox(this.position,
+      [this.position[0], this.position[1] - probe, this.position[2]], this.halfExtents);
+
+    let trace = probeDown();
+    if (trace.startSolid && Number.isFinite(trace.startDepth)) {
+      // Something moved into us since last step — a platform rising underfoot,
+      // a door closing on us. Step out through the nearest face and look again,
+      // so a rider on a lift stays grounded instead of "falling" every frame.
+      this.position = add(this.position, mul(trace.normal, trace.startDepth + EPS));
+      this.velocity = clipVelocity(this.velocity, trace.normal);
+      trace = probeDown();
+    }
+
+    // A trace that is still start-solid reports the shortest way out of
+    // geometry, which is not the same thing as standing on it. Moving up and
+    // away from the surface faster than a nudge (a jump) also isn't grounded.
+    const walkable = trace.hit && !trace.startSolid && trace.normal[1] >= GROUND_NORMAL_Y;
+    const leaving = dot(this.velocity, trace.normal) > 0.5;
+    this.onGround = walkable && !leaving;
+
+    if (this.onGround) {
+      this.groundNormal = trace.normal;
+      this.position = trace.endPos;
+    }
     this.justLanded = this.onGround && !wasOnGround;
   }
 

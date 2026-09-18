@@ -189,9 +189,13 @@ function loadWorld(rel) {
   const built = buildMap(doc);
   world = built;
   anticheat.setWorld(built);
+  // info_player_start sits at foot level; a player's position is the centre
+  // of a 1.8m box. Lift by the same amount the client does in loadMapDocument,
+  // or a spawn puts the player half-buried in the floor and the anticheat's
+  // own inside-geometry check is the first thing they hit.
   spawnPoints = (built.entities || [])
     .filter((e) => e.classname === 'info_player_start' && Array.isArray(e.origin))
-    .map((e) => [...e.origin]);
+    .map((e) => [e.origin[0], e.origin[1] + 1.0, e.origin[2]]);
   if (!spawnPoints.length) spawnPoints = [[0, 2, 0]];
   return built;
 }
@@ -411,6 +415,15 @@ function resetForNewMap() {
     p.pos = pickSpawn();
     anticheat.setAmmo(p, 30);
     anticheat.grantGrace(p, p.pos, 4000);
+  }
+}
+
+// Each player gets their own spawn from resetForNewMap(), so this can't be a
+// single broadcast: without the spawn every client would stand on the map's
+// info_player_start, on top of each other, somewhere the server didn't pick.
+function announceMap() {
+  for (const p of players.values()) {
+    p.connection.send(JSON.stringify({ t: 'map', map: currentMap, spawn: p.pos }));
   }
 }
 
@@ -688,7 +701,7 @@ function runAdminCommand(line, issuedBy = 'console') {
       }
       currentMap = rest[0];
       resetForNewMap();
-      broadcast({ t: 'map', map: currentMap });
+      announceMap();
       systemNotice(`Map changed to ${currentMap} by ${issuedBy}`);
       return `map set to ${currentMap}`;
     }
@@ -717,7 +730,7 @@ function runAdminCommand(line, issuedBy = 'console') {
 
     case 'restart':
       resetForNewMap();
-      broadcast({ t: 'map', map: currentMap });
+      announceMap();
       systemNotice(`Map restarted by ${issuedBy}`);
       return 'restarted';
 

@@ -211,8 +211,7 @@ export class GameConsole {
     this.register('teleport', 'Move the player to coordinates', (args) => {
       const [x, y, z] = args.map(parseFloat);
       if (![x, y, z].every(Number.isFinite)) return 'usage: teleport <x> <y> <z>';
-      player().controller.position = [x, y, z];
-      player().controller.velocity = [0, 0, 0];
+      player().teleport([x, y, z]);
       return `teleported to ${x} ${y} ${z}`;
     }, { usage: '<x> <y> <z>', cheat: true });
 
