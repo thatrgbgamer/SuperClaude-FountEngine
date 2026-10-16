@@ -217,6 +217,7 @@ export function buildTextureArray(gl, materials, options = {}) {
 
   // [frames, fps, emissive] per material, read by the fragment shader.
   const info = new Float32Array(MAX_MATERIALS * 3);
+  const scroll = new Float32Array(MAX_MATERIALS * 2);    // per material: uv units per second, from `scroll: [u, v]`
 
   materials.forEach((material, index) => {
     const size = sizeOf(material);
@@ -225,6 +226,7 @@ export function buildTextureArray(gl, materials, options = {}) {
       info[index * 3] = frames;
       info[index * 3 + 1] = material.fps > 0 ? material.fps : 4;
       info[index * 3 + 2] = material.emissive ? 1 : 0;
+      if (Array.isArray(material.scroll)) { scroll[index * 2] = Number(material.scroll[0]) || 0; scroll[index * 2 + 1] = Number(material.scroll[1]) || 0; }
     }
     // A material with fewer frames than the busiest one repeats its last
     // frame, so any layer the shader could ask for exists.
@@ -254,7 +256,7 @@ export function buildTextureArray(gl, materials, options = {}) {
   gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.REPEAT);
 
-  return { texture: tex, count, maxFrames, layerSize, info };
+  return { texture: tex, count, maxFrames, layerSize, info, scroll };
 }
 
 export const DEFAULT_MATERIALS = [

@@ -211,10 +211,34 @@ export class SpriteLibrary {
 
   register(def) {
     const sprite = parseSprite(def, this);
+    sprite.def = def;                // kept so a palette variant can be derived from it later
     this.sprites.set(sprite.name, sprite);
     this._atlas = null;
     this.version++;
     return sprite;
+  }
+
+  /**
+   * A recoloured copy of a sprite, made once and cached; returns its name. `swap` maps a palette
+   * character to a new colour ({ r: '#2040c0' }) or an old colour to a new one ({ '#aa0000': '#0000aa' }).
+   * Frames are re-rasterised from the sprite's text, so a variant costs one more sprite in the atlas and nothing per frame.
+   */
+  variant(name, swap) {
+    const base = this.sprites.get(name);
+    if (!base || !base.def || !swap || !Object.keys(swap).length) return name;
+    const key = JSON.stringify(Object.entries(swap).sort());
+    let h = 5381;
+    for (let i = 0; i < key.length; i++) h = ((h * 33) ^ key.charCodeAt(i)) >>> 0;
+    const vname = `${name}~${h.toString(16)}`;
+    if (this.sprites.has(vname)) return vname;
+    const palette = { ...(base.def.palette || {}) };
+    for (const [from, to] of Object.entries(swap)) {
+      if (from.length === 1) { palette[from] = to; continue; }
+      const want = parseColor(from).join(',');
+      for (const [ch, col] of Object.entries(palette)) if (parseColor(col).join(',') === want) palette[ch] = to;
+    }
+    this.register({ ...base.def, name: vname, palette });
+    return vname;
   }
 
   registerAll(defs) {
@@ -310,6 +334,18 @@ export class SpriteInstance {
   }
 
   has(anim) { return !!this.sprite.anims[anim]; }
+
+  /** Recolour this instance in place (a palette swap), keeping its animation state. An empty swap restores the original. */
+  setPalette(swap) {
+    const base = this.baseName || this.name;
+    this.baseName = base;
+    const next = swap && Object.keys(swap).length ? this.library.variant(base, swap) : base;
+    if (next === this.name) return;
+    const keep = this.anim ? this.anim.name : null;
+    this.name = next;
+    this.sprite = this.library.get(next);
+    if (keep && this.sprite.anims[keep]) this.anim = this.sprite.anims[keep];
+  }
   get animName() { return this.anim ? this.anim.name : null; }
 
   /**

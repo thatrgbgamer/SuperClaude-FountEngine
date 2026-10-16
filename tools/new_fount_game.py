@@ -293,6 +293,10 @@ def refresh_editor(target, dry_run):
         dest.parent.mkdir(parents=True, exist_ok=True)
         text = (ENGINE_SRC / "editor" / "index.html").read_text(encoding="utf-8")
         dest.write_text(rewrite_map_list(text, maps) if maps else text, encoding="utf-8")
+        # The sprite-sheet preview page rides along: it reads the game's own sprites, so it is always safe to refresh.
+        sheet = ENGINE_SRC / "sprites.html"
+        if sheet.exists():
+            shutil.copy2(sheet, target / "sprites.html")
     return action, len(maps)
 
 

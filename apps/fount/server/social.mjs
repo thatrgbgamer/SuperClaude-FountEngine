@@ -43,6 +43,7 @@ export class Social {
     const ev = this.manager.events;
     this.off.push(ev.on('player-left', (p) => { if (!p.traveling) this.forget(p); }));
     this.off.push(ev.on('player-joined', (p) => this.rejoined(p)));
+    this.off.push(ev.on('player-reattached', (p) => this.rejoined(p)));
     this.timer = setInterval(() => this.tick(), 250);
     this.timer.unref?.();
   }

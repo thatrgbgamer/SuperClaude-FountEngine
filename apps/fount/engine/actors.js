@@ -12,6 +12,7 @@ import { AbilitySystem } from './abilities.js';
 import { NavGrid } from './nav.js';
 import { SpriteInstance } from './sprites.js';
 import { clamp } from './math.js';
+import { syncAppearance } from './paperdoll.js';
 
 export class ActorSystem {
   /**
@@ -205,7 +206,10 @@ export class ActorSystem {
       for (const s of a.statuses) {
         if (s.def.tint) tint = [tint[0] * s.def.tint[0], tint[1] * s.def.tint[1], tint[2] * s.def.tint[2]];
       }
+      syncAppearance(a, this.sprites);
+      if (a.paperdoll) a.paperdoll.drawUnder(renderer, pos, cameraYaw, { tint, alpha: fade });
       a.sprite.draw(renderer, pos, cameraYaw, { tint, alpha: fade });
+      if (a.paperdoll) a.paperdoll.drawOver(renderer, pos, cameraYaw, { tint, alpha: fade });
     }
     for (const p of this.combat.projectiles) {
       if (p.sprite) p.sprite.draw(renderer, p.pos, cameraYaw);

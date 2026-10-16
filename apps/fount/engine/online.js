@@ -11,6 +11,7 @@
 
 import { NetSession } from './netcode.js';
 import { SpriteInstance } from './sprites.js';
+import { syncAppearance } from './paperdoll.js';
 import { getStatusDef } from './actor.js';
 import { clamp } from './math.js';
 
@@ -123,7 +124,10 @@ export class ReplicaActors {
         const def = getStatusDef(st.id);
         if (def && def.tint) tint = [tint[0] * def.tint[0], tint[1] * def.tint[1], tint[2] * def.tint[2]];
       }
+      syncAppearance(ra, this.sprites);
+      if (ra.paperdoll) ra.paperdoll.drawUnder(renderer, pos, cameraYaw, { tint, alpha: fade });
       ra.sprite.draw(renderer, pos, cameraYaw, { tint, alpha: fade });
+      if (ra.paperdoll) ra.paperdoll.drawOver(renderer, pos, cameraYaw, { tint, alpha: fade });
     }
 
     // Projectiles, moved on from the last snapshot by their velocity so they glide at the frame rate.

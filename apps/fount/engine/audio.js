@@ -194,3 +194,44 @@ export function playSoundAt(name, soundPos, listenerPos, maxDist = 40) {
 }
 
 export const soundNames = Object.keys(PRESETS);
+
+// ---- music support ---------------------------------------------------------------------
+
+const pulseWaves = new Map();
+
+/** The audio clock in seconds (0 until audio is unlocked), which music schedules against. */
+export function audioTime() {
+  const c = ensureContext();
+  return c ? c.currentTime : 0;
+}
+
+/** Sound one note at an absolute audio time: { at, freq, duration, wave, volume, duty }. Used by the music sequencer. */
+export function playNote(note) {
+  const c = ensureContext();
+  if (!c || !enabled || c.state !== 'running') return;
+  const osc = c.createOscillator();
+  const gain = c.createGain();
+  if (note.wave === 'pulse' || (note.wave === 'square' && note.duty && note.duty !== 0.5)) {
+    const d = note.duty ?? 0.5;
+    if (!pulseWaves.has(d)) {
+      const n = 32, real = new Float32Array(n), imag = new Float32Array(n);
+      for (let k = 1; k < n; k++) { real[k] = (2 / (k * Math.PI)) * Math.sin(k * Math.PI * d); imag[k] = (2 / (k * Math.PI)) * (1 - Math.cos(k * Math.PI * d)); }
+      pulseWaves.set(d, c.createPeriodicWave(real, imag));
+    }
+    osc.setPeriodicWave(pulseWaves.get(d));
+  } else {
+    osc.type = ['sine', 'square', 'sawtooth', 'triangle'].includes(note.wave) ? note.wave : 'square';
+  }
+  osc.frequency.value = note.freq;
+  const t0 = Math.max(note.at, c.currentTime);
+  const end = Math.max(t0 + 0.02, note.at + note.duration);
+  // A short attack and release: without them every note clicks.
+  gain.gain.setValueAtTime(0, t0);
+  gain.gain.linearRampToValueAtTime(note.volume, t0 + 0.01);
+  gain.gain.setValueAtTime(note.volume, Math.max(t0 + 0.01, end - 0.04));
+  gain.gain.linearRampToValueAtTime(0, end);
+  osc.connect(gain);
+  gain.connect(master);
+  osc.start(t0);
+  osc.stop(end + 0.02);
+}

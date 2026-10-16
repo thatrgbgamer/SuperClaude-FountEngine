@@ -218,6 +218,7 @@ export class InstanceManager {
     welcome.resume = token;
     welcome.resumed = true;
     session.send(welcome);
+    this.events.emit('player-reattached', player, player.instance);
     return player;
   }
 

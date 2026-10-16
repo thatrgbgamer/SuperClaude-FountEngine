@@ -6,7 +6,7 @@ import { CollisionWorld, CharacterController } from './physics.js';
 import { RagdollSystem, STEP_DT } from './ragdoll.js';
 import { EntityWorld, defineEntity, getEntityDefinition } from './entity.js';
 import { buildMap, loadMap, pointInBrush } from './map.js';
-import { playSound, playSoundAt, unlockAudio } from './audio.js';
+import { playSound, playSoundAt, unlockAudio, playNote, audioTime } from './audio.js';
 import {
   add, sub, mul, norm, len, dot, dist, clamp,
   anglesToForward, anglesToRight,
@@ -28,6 +28,11 @@ import { OnlineLink, ReplicaActors, OnlinePlayer } from './online.js';
 import { Economy } from './economy.js';
 import { ChatClient, PartyClient, PvpClient } from './social_client.js';
 import { NamePlates } from './nameplates.js';
+import { WorldClock } from './worldclock.js';
+import { Decals } from './decals.js';
+import { MusicPlayer } from './music.js';
+import { Flow } from './flow.js';
+import './entities_world.js';
 
 // Single source of truth, shared with the ragdoll solver: impulses convert
 // force to a verlet position offset using this exact value, so the two drifting
@@ -210,6 +215,10 @@ export class Game {
     this.frameDt = 0;
     this.fade = { alpha: 0, target: 0, speed: 4, resolve: null };
     this.transitioning = false;
+    this.clock = new WorldClock({}, () => this.worldTime);
+    this.decals = new Decals(this.sprites);
+    this.music = new MusicPlayer({ tone: playNote, now: audioTime });
+    this.flow = new Flow(this);
     this.chat = new ChatClient(this);
     this.parties = new PartyClient(this);
     this.pvp = new PvpClient(this);
@@ -250,6 +259,8 @@ export class Game {
   async loadConfig(url) {
     const cfg = typeof url === 'string' ? await fetchJson(url) : url;
     this.config = mergeConfig(this.config, cfg);
+    if (cfg.clock) this.clock.configure(cfg.clock);
+    if (cfg.music && cfg.music.songs) Object.assign(this.music.songs, cfg.music.songs);
     await this.loadAssets(cfg);
     if (cfg.keys) this.input.configure(cfg.keys);
     this.input.load(); // a player's own rebinds win over the game's defaults
@@ -340,6 +351,7 @@ export class Game {
       players: [this.player],
       // The same call a server's scripts make; single player just keeps no ledger.
       economy: new Economy({ goldField: (cfg.server || {}).goldField }),
+      worldTime: () => this.worldTime,
       // Alone there is no party: a share is the whole amount, and the only member is the player.
       encounters: { dropLoot: (entity) => [this.world.spawn(entity)] },
       parties: {
@@ -466,6 +478,8 @@ export class Game {
     this.actors.update(dt);
     this.particles.update(dt);
     this.floatText.update(dt);
+    this.decals.update(dt);
+    this.clock.update((n, c) => this.events.emit(n, c));
   }
 
   createTopDownPlayer(feet, yaw, carry) {
@@ -596,6 +610,18 @@ export class Game {
     this.events.emit('interact', { entity: best, player: P });
   }
 
+  /**
+   * Seconds on the world clock. On a server every player in an instance reads the same value (it rides every snapshot),
+   * so day and night, seasons and tides agree; offline it is the game's own running time.
+   */
+  get worldTime() {
+    if (this.online && this.online.session && this.online.ready) {
+      const s = this.online.session;
+      return s.worldTime + Math.min(0.2, Math.max(0, (s.now() - s.lastSnapshotAt) / 1000));
+    }
+    return this.renderTime;
+  }
+
   /** Everything a game's own HUD needs about the player, as plain data. */
   getHudState() {
     const P = this.player;
@@ -622,6 +648,11 @@ export class Game {
       target: shown(tgt),
       hover: shown(this.hover.actor),
       data: A.data,
+      // The same shape whether the game is single player or online, so one HUD serves both.
+      online: !!this.online,
+      party: this.parties.state,
+      invitation: this.parties.invitation,
+      clock: this.clock.sample(),
     };
   }
 
@@ -963,6 +994,8 @@ export class Game {
     this.actors.update(dt);
     this.particles.update(dt);
     this.floatText.update(dt);
+    this.decals.update(dt);
+    this.clock.update((n, c) => this.events.emit(n, c));
   }
 
   step(dt) {
@@ -1064,6 +1097,12 @@ export class Game {
 
     this.env.pointLights = this.world.collectPointLights();
     this.renderer.setTime(this.renderTime);
+    // Top-down: scenery between the camera and the player is cut away so a wall never hides them.
+    const occ = (this.config.camera || {}).occlusionFade;
+    if (this.mode === 'topdown' && this.player && this.player.actor && occ !== false) {
+      const f = this.player.actor.feet;
+      this.renderer.setFocus([f[0], f[1], f[2]], typeof occ === 'number' ? occ : 2.2);
+    } else this.renderer.setFocus(null);
     this.renderer.setFade(this.fade.alpha);
 
     this.renderer.beginShadowPass();
@@ -1076,6 +1115,7 @@ export class Game {
     this.renderer.beginFrame(camera, this.env, aspect);
     this.renderer.drawWorld(false);
     this.world.draw(this.renderer, false);
+    this.decals.draw(this.renderer);
     this.actors.draw(this.renderer, yaw, alpha);
     this.particles.draw(this.renderer);
     this.floatText.draw(this.renderer);

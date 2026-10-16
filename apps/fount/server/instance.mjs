@@ -17,6 +17,7 @@ import { makeRandom } from '../engine/math.js';
 import { SIM_DT, STEPS_PER_COMMAND, COMMAND_HZ, LIMITS, round2 } from '../engine/protocol.js';
 import '../engine/entities.js';
 import '../engine/entities_rpg.js';
+import '../engine/entities_world.js';
 import { Replicator, ClientView } from './replication.mjs';
 import { SpatialInterest } from './interest.mjs';
 import { Encounters } from './encounters.mjs';
@@ -174,6 +175,7 @@ export class Instance {
       collision: this.collision,
       actors: this.actors,
       economy: this.manager.economy,
+      worldTime: () => this.worldTime(),
       parties: this.manager.social,
       encounters: this.encounters,
       particles,

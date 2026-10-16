@@ -74,6 +74,16 @@ uniform float uTime;
 uniform float uHardShadow;
 uniform float uMatCount;
 uniform vec3 uMatInfo[${MAX_MATERIALS}];   // per material: frames, fps, emissive
+uniform vec2 uMatScroll[${MAX_MATERIALS}]; // per material: uv units per second
+uniform vec4 uFocus;       // xyz: the point to keep visible (the player); w: radius of the cut-away, 0 = off
+uniform vec3 uViewDir;     // from the focus toward the camera
+
+float bayer4(vec2 p) {
+  ivec2 i = ivec2(mod(p, 4.0));
+  int idx = i.x + i.y * 4;
+  const float m[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+  return (m[idx] + 0.5) / 16.0;
+}
 
 out vec4 fragColor;
 
@@ -99,8 +109,21 @@ void main() {
   // Animated materials: the vertex carries the material, the clock picks the frame.
   vec3 info = uMatInfo[clamp(int(vLayer + 0.5), 0, ${MAX_MATERIALS - 1})];
   float frame = info.x > 1.5 ? mod(floor(uTime * info.y), info.x) : 0.0;
-  vec3 albedo = texture(uTex, vec3(vUV, vLayer + frame * uMatCount)).rgb * vTint;
+  vec2 uv = vUV + uMatScroll[clamp(int(vLayer + 0.5), 0, ${MAX_MATERIALS - 1})] * uTime;
+  vec3 albedo = texture(uTex, vec3(uv, vLayer + frame * uMatCount)).rgb * vTint;
   vec3 N = normalize(vNormal);
+
+  // Cut-away: surfaces between the camera and the focus fade out in a dither, so a wall never hides the player.
+  // Anything at or below the focus's own height (the floor) stays.
+  if (uFocus.w > 0.0 && vWorld.y > uFocus.y + 0.35) {
+    vec3 rel = vWorld - uFocus.xyz;
+    float along = dot(rel, uViewDir);
+    if (along > 0.0) {
+      float perp = length(rel - uViewDir * along);
+      float cut = smoothstep(uFocus.w, uFocus.w * 0.45, perp);
+      if (cut > bayer4(gl_FragCoord.xy)) discard;
+    }
+  }
 
   if (uEmissive > 0.5) {
     fragColor = vec4(albedo, 1.0);
@@ -190,8 +213,11 @@ void main() {
   // Cylindrical billboard: the quad always faces the camera but keeps its feet
   // on the ground. aTilt leans it back toward the camera's own up so a
   // top-down view does not squash standing characters.
-  vec3 up = normalize(mix(vec3(0.0, 1.0, 0.0), uCamUp, aTilt));
-  vec3 world = aOrigin + uRight * aOffset.x + up * aOffset.y;
+  // aTilt < -0.5 lays the quad flat on the ground, aligned to the world: a decal.
+  bool lay = aTilt < -0.5;
+  vec3 up = lay ? vec3(0.0, 0.0, -1.0) : normalize(mix(vec3(0.0, 1.0, 0.0), uCamUp, aTilt));
+  vec3 right = lay ? vec3(1.0, 0.0, 0.0) : uRight;
+  vec3 world = aOrigin + right * aOffset.x + up * aOffset.y;
   vec4 clip = uProj * uView * vec4(world, 1.0);
 
   if (uSnap > 0.5) {
@@ -453,7 +479,7 @@ export class Renderer {
     for (const name of ['uProj', 'uView', 'uModel', 'uLightVP', 'uTex', 'uShadow', 'uSunDir',
       'uSunColor', 'uAmbient', 'uCamPos', 'uFogColor', 'uFogDensity', 'uPointCount',
       'uPointPos', 'uPointColor', 'uPointRadius', 'uEmissive',
-      'uTime', 'uHardShadow', 'uMatCount', 'uMatInfo']) {
+      'uTime', 'uHardShadow', 'uMatCount', 'uMatInfo', 'uMatScroll', 'uFocus', 'uViewDir']) {
       this.uniforms[name] = gl.getUniformLocation(this.program, name);
     }
 
@@ -542,6 +568,7 @@ export class Renderer {
     this.texture = built.texture;
     this.matCount = built.count;
     this.matInfo = built.info;
+    this.matScroll = built.scroll;
     this.materials = materials;
   }
 
@@ -664,6 +691,12 @@ export class Renderer {
     gl.uniform1f(this.uniforms.uHardShadow, this.hardShadows ? 1 : 0);
     gl.uniform1f(this.uniforms.uMatCount, this.matCount || 1);
     if (this.matInfo) gl.uniform3fv(this.uniforms.uMatInfo, this.matInfo);
+    if (this.matScroll) gl.uniform2fv(this.uniforms.uMatScroll, this.matScroll);
+    const f = this.focus;
+    gl.uniform4f(this.uniforms.uFocus, f ? f.pos[0] : 0, f ? f.pos[1] : 0, f ? f.pos[2] : 0, f ? f.radius : 0);
+    const fd = camera.forward;
+    gl.uniform3f(this.uniforms.uViewDir, -fd[0], -fd[1], -fd[2]);
+    this.camPos = camera.position;
 
     const lights = (env.pointLights || []).slice(0, 16);
     this._lights = lights;
@@ -917,6 +950,12 @@ export class Renderer {
   }
 
   setTime(seconds) { this.time = seconds; }
+
+  /**
+   * Keep a point visible through walls: scenery between the camera and `pos` is dithered away within
+   * `radius` metres of the sight line. Pass null to turn it off. Floors at the point's own height stay.
+   */
+  setFocus(pos, radius = 2.2) { this.focus = pos ? { pos: [pos[0], pos[1], pos[2]], radius } : null; }
 
   setFade(alpha, color = [0, 0, 0]) { this.fade = { alpha, color }; }
 

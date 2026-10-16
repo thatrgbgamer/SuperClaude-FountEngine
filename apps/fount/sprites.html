@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fount Sprite Sheet</title>
+<style>
+  :root { --bg: #0f1218; --panel: #171c25; --ink: #e8ecf2; --dim: #8b97a8; --accent: #6fd3c7; --line: #2a3140; }
+  @media (prefers-color-scheme: light) { :root { --bg: #f2f4f8; --panel: #fff; --ink: #1a2030; --dim: #5d6a80; --accent: #0d8a7d; --line: #d3d9e4; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  header { position: sticky; top: 0; z-index: 2; display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  header h1 { margin: 0; font-size: 15px; letter-spacing: .5px; }
+  label { color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  input, select, button { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 8px; }
+  input[type=range] { padding: 0; }
+  main { padding: 16px; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  section h2 { margin: 0 0 2px; font-size: 14px; color: var(--accent); }
+  section .meta { color: var(--dim); font-size: 12px; margin-bottom: 8px; }
+  .anim { margin: 8px 0 0; }
+  .anim h3 { margin: 0 0 4px; font-size: 12px; color: var(--dim); font-weight: 600; }
+  .dirs { display: flex; flex-wrap: wrap; gap: 8px; }
+  .dir { display: flex; flex-direction: column; gap: 2px; }
+  .dir small { color: var(--dim); font-size: 10px; }
+  .frames { display: flex; gap: 2px; align-items: flex-end; }
+  canvas { image-rendering: pixelated; background:
+      conic-gradient(#0003 25%, transparent 0 50%, #0003 0 75%, transparent 0) 0 0 / 8px 8px; border-radius: 2px; }
+  .live { display: flex; gap: 10px; align-items: flex-end; margin: 6px 0; }
+  #err { color: #e2564d; padding: 16px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Sprite sheet</h1>
+  <label>game config <input id="cfg" size="22" value="game/test_game.json"></label>
+  <label>scale <input id="scale" type="range" min="1" max="12" value="4"> <span id="scaleN">4x</span></label>
+  <label>filter <input id="filter" placeholder="name contains"></label>
+  <label><input id="engine" type="checkbox" checked> engine built-ins</label>
+  <label><input id="play" type="checkbox" checked> animate</label>
+  <label>palette swap <input id="swap" size="22" placeholder='{"r":"#2040c0"}'></label>
+  <button id="load">Reload</button>
+  <span id="count" style="color:var(--dim)"></span>
+</header>
+<div id="err"></div>
+<main id="grid"></main>
+
+<script type="module">
+import { SpriteLibrary, SpriteInstance, DIR_NAMES } from './engine/sprites.js';
+import { BUILTIN_SPRITES } from './engine/builtin_sprites.js';
+
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+if (params.get('config')) $('cfg').value = params.get('config');
+
+let lib = null;
+const live = [];          // { inst, canvas, ... } for the animated previews
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: ${res.status}`);
+  return res.json();
+}
+
+async function build() {
+  $('err').textContent = '';
+  lib = new SpriteLibrary();
+  const problems = [];
+  const add = (def, from) => { try { lib.register(def); } catch (e) { problems.push(`${from}: ${e.message}`); } };
+  if ($('engine').checked) for (const d of BUILTIN_SPRITES) add(d, 'engine');
+  try {
+    const cfg = await fetchJson($('cfg').value);
+    for (const src of [].concat(cfg.sprites || [])) {
+      const data = typeof src === 'string' ? await fetchJson(src) : src;
+      for (const d of [].concat(data.sprites || data)) add(d, typeof src === 'string' ? src : 'config');
+    }
+    for (const d of cfg.spriteDefs || []) add(d, 'config');
+  } catch (e) { problems.push(`config: ${e.message}`); }
+  $('err').textContent = problems.join('\n');
+  render();
+}
+
+function frameCanvas(id, scale) {
+  const f = lib.frames[id];
+  const c = document.createElement('canvas');
+  c.width = f.w; c.height = f.h;
+  c.style.width = `${f.w * scale}px`; c.style.height = `${f.h * scale}px`;
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(f.rgba), f.w, f.h), 0, 0);
+  return c;
+}
+
+function render() {
+  const scale = +$('scale').value;
+  $('scaleN').textContent = `${scale}x`;
+  const q = $('filter').value.trim().toLowerCase();
+  let swap = null;
+  try { swap = $('swap').value.trim() ? JSON.parse($('swap').value) : null; } catch { swap = null; }
+  const grid = $('grid');
+  grid.textContent = '';
+  live.length = 0;
+  let n = 0;
+  for (const name of lib.names().filter((x) => !x.includes('~')).sort()) {
+    if (q && !name.toLowerCase().includes(q)) continue;
+    n++;
+    const shown = swap ? lib.variant(name, swap) : name;
+    const sprite = lib.get(shown);
+    const sec = document.createElement('section');
+    const anims = Object.values(sprite.anims);
+    sec.innerHTML = `<h2></h2><div class="meta"></div>`;
+    sec.querySelector('h2').textContent = name;
+    sec.querySelector('.meta').textContent = `${sprite.w}x${sprite.h}px, ${sprite.ppu} px/m, anchor ${sprite.anchor.join(',')}, ${anims.length} animation${anims.length === 1 ? '' : 's'}`;
+
+    const inst = new SpriteInstance(lib, shown, {});
+    const liveRow = document.createElement('div');
+    liveRow.className = 'live';
+    const lc = document.createElement('canvas');
+    lc.width = sprite.w; lc.height = sprite.h;
+    lc.style.width = `${sprite.w * scale}px`; lc.style.height = `${sprite.h * scale}px`;
+    liveRow.append(lc);
+    const sel = document.createElement('select');
+    for (const a of anims) sel.add(new Option(a.name, a.name));
+    liveRow.append(sel);
+    sel.onchange = () => inst.play(sel.value, { restart: true });
+    sec.append(liveRow);
+    live.push({ inst, lc, sprite });
+
+    for (const a of anims) {
+      const wrap = document.createElement('div');
+      wrap.className = 'anim';
+      wrap.innerHTML = `<h3></h3><div class="dirs"></div>`;
+      wrap.querySelector('h3').textContent = `${a.name} - ${a.count} frame${a.count === 1 ? '' : 's'} @ ${a.fps} fps${a.loop ? '' : ', plays once'}`;
+      const dirs = wrap.querySelector('.dirs');
+      for (const dir of a.dirNames) {
+        const d = document.createElement('div');
+        d.className = 'dir';
+        const fr = document.createElement('div');
+        fr.className = 'frames';
+        for (const id of a.ids[dir]) fr.append(frameCanvas(id, Math.max(1, Math.min(scale, 4))));
+        const small = document.createElement('small');
+        small.textContent = a.flip[dir] ? `${dir} (mirrored)` : dir;
+        d.append(fr, small);
+        dirs.append(d);
+      }
+      sec.append(wrap);
+    }
+    grid.append(sec);
+  }
+  $('count').textContent = `${n} sprite${n === 1 ? '' : 's'}`;
+}
+
+let last = performance.now();
+function tick(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now;
+  if ($('play').checked) {
+    for (const l of live) {
+      l.inst.update(dt);
+      const f = l.inst.currentFrame(0);
+      const fr = lib.frames[f.id];
+      const ctx = l.lc.getContext('2d');
+      ctx.clearRect(0, 0, l.lc.width, l.lc.height);
+      const tmp = new ImageData(new Uint8ClampedArray(fr.rgba), fr.w, fr.h);
+      ctx.putImageData(tmp, 0, 0);
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+for (const id of ['scale', 'filter', 'swap']) $(id).addEventListener('input', () => lib && render());
+$('engine').addEventListener('change', build);
+$('load').addEventListener('click', build);
+build();
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
