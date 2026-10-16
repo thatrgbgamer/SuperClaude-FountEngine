@@ -12,6 +12,7 @@ Every classname the engine ships with, its keyvalues, and the inputs/outputs it 
 - [Pickups](#pickups)
 - [NPCs and death](#npcs-and-death)
 - [Effects](#effects)
+- [Top-down and RPG entities](#top-down-and-rpg-entities)
 - [Universal inputs](#universal-inputs)
 
 ## The IO system
@@ -218,6 +219,78 @@ Inputs: `Spawn`.
 Inputs: `Explode`. Outputs: `OnExplode`.
 
 An explosion kills NPCs in range with a radial impulse (they ragdoll outward), shoves `prop_physics`, throws existing ragdolls, and damages the player. Set `damage: 0` for a launcher pad that flings without hurting.
+
+## Top-down and RPG entities
+
+These need the sprite and actor layer; see `rpg.md` and `sprites-and-audio.md`. They work in any mode, but only make sense with sprites registered.
+
+### `info_landmark`
+
+A named place a level transition can drop the player. `origin` and `angles` (yaw sets the facing). Target it from `trigger_changelevel`'s `landmark`.
+
+### `prop_sprite`
+
+Scenery drawn as a sprite: trees, torches, statues. It has no collision; add an `invisible: true` brush for that.
+
+| Keyvalue | Default | Meaning |
+|---|---|---|
+| `sprite` | required | Registered sprite name (the built-in `fx_fire` makes a flame) |
+| `anim` | `idle` | Starting animation |
+| `scale`, `tint`, `animSpeed` | `1`, white, `1` | |
+| `heading` | `angles[1]` | Yaw the sprite faces, for multi-facing sprites |
+| `shadow` | `0.45` | Blob shadow radius; `0` for none |
+
+Inputs: `PlayAnim` (param is the animation name).
+
+### `actor_npc`
+
+A monster or townsperson: an actor with a sprite and AI.
+
+| Keyvalue | Default | Meaning |
+|---|---|---|
+| `sprite` | | Without one the actor is invisible (a warning says so) |
+| `title` | `name` | Display name |
+| `faction` | `enemy` | `neutral` fights nobody and is not attacked |
+| `health`, `speed`, `radius`, `height`, `mass`, `scale` | `40`, `3`, `0.35`, `1.5`, `1`, `1` | |
+| `resist`, `stats`, `resources` | | As on actors, e.g. `"resist": { "fire": 0.5 }` |
+| `corpseTime` | `6` | Seconds the body lingers |
+| `respawn` | `0` | Seconds after the corpse clears before it returns at full health; `0` is never |
+| `ai` | on | An object of AI settings; `false` or `"passive": true` for none. The AI keys (`aggroRadius`, `attackRange`, `attack`, ...) may also be written flat on the entity |
+
+Outputs: `OnDamaged` (param is the damage), `OnDeath`, `OnAggro`, `OnLeash`. Inputs: `Kill`, `Heal` (param amount), `SetFaction`, `Aggro`, `Enable` / `Disable` (switch the AI on and off).
+
+### `func_hazard`
+
+A volume that hurts whatever stands in it, and can rise and fall: lava, acid, a spike pit.
+
+| Keyvalue | Default | Meaning |
+|---|---|---|
+| `min`, `max` | required | Box corners at rest |
+| `material`, `uvScale`, `tint` | `lava`, `0.5`, white | The surface; an `emissive` animated material makes lava |
+| `damage` | `{ "type": "fire", "amount": 8 }` | Damage spec |
+| `interval` | `0.5` | Seconds between ticks per victim |
+| `status` | | A status to apply with each tick |
+| `moveDir`, `distance`, `speed` | `[0,1,0]`, `0`, `1` | How far and fast it travels. `distance: 0` is static |
+| `startRaised`, `auto`, `wait` | `false`, `false`, `2` | `auto` cycles, waiting `wait` seconds at each end |
+| `particles`, `particleRate` | | A preset thrown off the surface, e.g. `ember` |
+
+It is not solid: actors walk into it and take damage. Anything is hurt whose feet are below its surface and whose body reaches above its bottom, so a rising level changes which paths are safe. Outputs: `OnTouch`, `OnRaised`, `OnLowered`. Inputs: `Raise`, `Lower`, `Toggle`, `Start`, `Stop`. Monsters do not path around it.
+
+### `trigger_changelevel`
+
+Loads another map when the player walks in, carrying their state. A box (`min`/`max`), or a `trigger` brush with the same `name`.
+
+| Keyvalue | Meaning |
+|---|---|
+| `map` | Path of the map to load, e.g. `game/maps/emberhollow.json` |
+| `landmark` | `info_landmark` name in that map to arrive at (omit for its player start) |
+| `effect`, `effectRate` | Portal particles over the box (default `portal`, 6 a second; `false` for none) |
+
+Output: `OnTravel`. Fires on entry, not every step inside.
+
+### `env_particles`
+
+A continuous particle source at `origin`: `preset` (default `smoke`), `rate` per second, `radius` to scatter. Enable/Disable toggles it.
 
 ## Universal inputs
 

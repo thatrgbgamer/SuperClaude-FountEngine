@@ -103,6 +103,7 @@ Two things to keep in mind when authoring for it:
 |---|---|
 | `game/maps/*.json` | Levels. One file per map, read directly at runtime |
 | `game/scripts/*.js` | Custom entity behaviours for a specific game |
+| `game/sprites/*.json`, `game/abilities.json`, `game/game.json` | Top-down games: sprites, abilities and the game-wide config (conventional names, wired up in the config) |
 | `engine/` | The engine itself. Don't edit this to build a game |
 | `server/` | Multiplayer server. Likewise — vendored, not game content |
 | `editor/index.html` | In-browser editor: fly around, select, edit, export JSON |
@@ -113,6 +114,12 @@ Read the reference file for the job at hand rather than guessing at schema:
 - **`references/map-format.md`** — brush types, materials, sky/lighting, coordinate system, and a scale table so rooms feel right.
 - **`references/entities.md`** — every built-in classname, its keyvalues, and its inputs/outputs, plus how the IO system routes events.
 - **`references/custom-behaviors.md`** — `defineEntity`, the engine services available to behaviours, and two worked examples.
+- **`references/rpg.md`** — top-down / RPG games: the camera, the pixel-art render pipeline, actors, damage, abilities, statuses, monster AI, level transitions, events, and how to write a game's own HUD.
+- **`references/sprites-and-audio.md`** — the text sprite format, particles, the bitmap font, `<fount-text>`, and every sound preset.
+
+## Top-down and RPG games
+
+Setting `"mode": "topdown"` (in a map, or game-wide with `game.loadConfig()`) turns Fount into a pixel-art sprite RPG engine: a follow camera, cursor-driven player, low-resolution palette-and-dither rendering, billboarded text sprites, and a generic actor / ability / status / AI layer. Read `references/rpg.md` first. The engine supplies mechanisms only. Classes, items, quests and art are the game's, as JSON data and `defineEntity` modules. Sprites are authored as text; see `references/sprites-and-audio.md`. Verify combat, abilities and AI headlessly in Node (`apps/fount/tests/rpg.test.mjs` is a worked example) before reporting them done.
 
 ## Building a level
 

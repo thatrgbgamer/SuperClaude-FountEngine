@@ -14,6 +14,10 @@ That single constraint shapes everything here. Authoring happens in a Claude Cod
 
 So a whole game is text you can diff, review, and edit in one pass.
 
+## Top-down pixel-art and RPG games
+
+Set `"mode": "topdown"` and the same engine becomes a pixel-art sprite RPG engine: a follow camera and cursor picking, low-resolution rendering with an enforced palette and Bayer dithering, text-defined billboard sprites, particles and a bitmap font, plus generic actors, abilities, statuses, monster AI with baked navigation, hazards and level transitions. Nothing about it is game-specific, and a map without the setting is the first-person game it always was. See `.claude/skills/fount-gamedev/references/rpg.md` (in a scaffolded game) or `skills/fount-gamedev/references/rpg.md`, and try the `test_topdown` map. Engine tests run with plain Node: `node tests/rpg.test.mjs`.
+
 ## Run it
 
 ```sh

@@ -6,6 +6,7 @@ let ctx = null;
 let master = null;
 let noiseBuffer = null;
 let enabled = true;
+const warnedSounds = new Set();
 
 function ensureContext() {
   if (ctx) return ctx;
@@ -123,6 +124,48 @@ const PRESETS = {
   ragdoll() {
     playNoise({ freq: 420, filter: 'lowpass', attack: 0.002, decay: 0.13, gain: 0.28, sweepTo: 120 });
   },
+
+  // --- RPG set: melee, magic, UI and monsters -------------------------------
+  swing() {
+    playNoise({ freq: 900, filter: 'bandpass', q: 1.2, attack: 0.01, decay: 0.12, gain: 0.3, sweepTo: 2600 });
+  },
+  hit() {
+    playNoise({ freq: 1500, filter: 'bandpass', q: 0.9, attack: 0.001, decay: 0.07, gain: 0.5, sweepTo: 300 });
+    playTone({ freq: 140, endFreq: 60, type: 'square', attack: 0.001, decay: 0.07, gain: 0.3 });
+  },
+  crit() {
+    playNoise({ freq: 2600, filter: 'bandpass', q: 0.8, attack: 0.001, decay: 0.1, gain: 0.55, sweepTo: 400 });
+    playTone({ freq: 220, endFreq: 70, type: 'square', attack: 0.001, decay: 0.12, gain: 0.35 });
+    playTone({ freq: 880, endFreq: 1320, type: 'triangle', attack: 0.002, decay: 0.09, gain: 0.18 });
+  },
+  cast() {
+    playTone({ freq: 330, endFreq: 760, type: 'triangle', attack: 0.02, decay: 0.28, gain: 0.25 });
+    playNoise({ freq: 2200, filter: 'highpass', attack: 0.02, decay: 0.2, gain: 0.08, sweepTo: 5000 });
+  },
+  heal() {
+    playTone({ freq: 523, type: 'sine', attack: 0.01, decay: 0.16, gain: 0.22 });
+    setTimeout(() => ctx && playTone({ freq: 784, type: 'sine', attack: 0.01, decay: 0.22, gain: 0.22 }), 90);
+  },
+  portal() {
+    playNoise({ freq: 300, filter: 'bandpass', q: 3, attack: 0.15, decay: 0.7, gain: 0.3, sweepTo: 2400 });
+    playTone({ freq: 180, endFreq: 640, type: 'sine', attack: 0.15, decay: 0.6, gain: 0.22 });
+  },
+  click() {
+    playTone({ freq: 1100, endFreq: 800, type: 'square', attack: 0.001, decay: 0.03, gain: 0.14 });
+  },
+  enemyhurt() {
+    playTone({ freq: 210, endFreq: 95, type: 'sawtooth', attack: 0.004, decay: 0.16, gain: 0.32 });
+  },
+  enemydie() {
+    playTone({ freq: 190, endFreq: 40, type: 'sawtooth', attack: 0.01, decay: 0.45, gain: 0.38 });
+    playNoise({ freq: 500, filter: 'lowpass', attack: 0.01, decay: 0.35, gain: 0.22, sweepTo: 90 });
+  },
+  error() {
+    playTone({ freq: 160, endFreq: 120, type: 'square', attack: 0.002, decay: 0.12, gain: 0.2 });
+  },
+  levelup() {
+    [523, 659, 784, 1047].forEach((f, i) => setTimeout(() => ctx && playTone({ freq: f, type: 'triangle', attack: 0.005, decay: 0.2, gain: 0.25 }), i * 85));
+  },
 };
 
 export function playSound(name, volumeScale = 1) {
@@ -130,7 +173,11 @@ export function playSound(name, volumeScale = 1) {
   const c = ensureContext();
   if (!c || c.state !== 'running') return;
   const preset = PRESETS[name];
-  if (!preset) return;
+  if (!preset) {
+    // A typo'd sound name should be loud once, not silent forever.
+    if (!warnedSounds.has(name)) { warnedSounds.add(name); console.warn(`[fount] no sound preset "${name}" (have: ${Object.keys(PRESETS).join(', ')})`); }
+    return;
+  }
   const prev = master.gain.value;
   master.gain.value = prev * volumeScale;
   try { preset(); } finally { master.gain.value = prev; }

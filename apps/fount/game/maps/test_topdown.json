@@ -1,0 +1,1084 @@
+{
+ "mode": "topdown",
+ "camera": {
+  "pitch": 58,
+  "yaw": 45,
+  "ortho": true,
+  "pixelsPerUnit": 16,
+  "spriteTilt": 0.5,
+  "yawStep": 45
+ },
+ "render": {
+  "resolution": [
+   480,
+   270
+  ],
+  "palette": [
+   "#000000",
+   "#1d2b53",
+   "#7e2553",
+   "#008751",
+   "#ab5236",
+   "#5f574f",
+   "#c2c3c7",
+   "#fff1e8",
+   "#ff004d",
+   "#ffa300",
+   "#ffec27",
+   "#00e436",
+   "#29adff",
+   "#83769c",
+   "#ff77a8",
+   "#ffccaa"
+  ],
+  "dither": {
+   "strength": 0.25,
+   "size": 4
+  },
+  "textureSize": 32,
+  "hardShadows": true
+ },
+ "player": {
+  "sprite": "test_hero",
+  "health": 100,
+  "speed": 5,
+  "resources": {
+   "mana": {
+    "max": 50,
+    "regen": 3
+   }
+  },
+  "hotbar": [
+   "test_strike",
+   "test_bolt"
+  ],
+  "stats": {
+   "critChance": 0.1
+  }
+ },
+ "spriteDefs": [
+  {
+   "name": "test_hero",
+   "size": [
+    8,
+    12
+   ],
+   "anchor": [
+    4.0,
+    12
+   ],
+   "palette": {
+    ".": null,
+    "k": "#1d2b53",
+    "s": "#ffccaa",
+    "e": "#1d2b53",
+    "b": "#29adff",
+    "w": "#fff1e8"
+   },
+   "animations": {
+    "idle": {
+     "fps": 2,
+     "dirs": 4,
+     "frames": {
+      "S": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ]
+      ],
+      "E": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ]
+      ],
+      "N": [
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ]
+      ]
+     }
+    },
+    "walk": {
+     "fps": 7,
+     "dirs": 4,
+     "frames": {
+      "S": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb.bk..",
+        ".kb.bk..",
+        ".kk.kk.."
+       ]
+      ],
+      "E": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb.bk..",
+        ".kb.bk..",
+        ".kk.kk.."
+       ]
+      ],
+      "N": [
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb.bk..",
+        ".kb.bk..",
+        ".kk.kk.."
+       ]
+      ]
+     }
+    },
+    "attack": {
+     "fps": 12,
+     "loop": false,
+     "dirs": 1,
+     "events": {
+      "1": "hit"
+     },
+     "frames": [
+      [
+       "..kkkk..",
+       ".kssssk.",
+       ".kesesk.",
+       ".kssssk.",
+       "wwkkkk..",
+       "wkbbbbk.",
+       "wbbbbbbk",
+       "kbbbbbbk",
+       ".kbbbbk.",
+       ".kb..bk.",
+       ".kb..bk.",
+       ".kk..kk."
+      ],
+      [
+       "..kkkk..",
+       ".kssssk.",
+       ".kesesk.",
+       ".kssssk.",
+       "..kkkk.w",
+       ".kbbbbkw",
+       "kbbbbbbw",
+       "kbbbbbbk",
+       ".kbbbbk.",
+       ".kb..bk.",
+       ".kb..bk.",
+       ".kk..kk."
+      ],
+      [
+       "..kkkk..",
+       ".kssssk.",
+       ".kesesk.",
+       ".kssssk.",
+       "..kkkk..",
+       ".kbbbbk.",
+       "kbbbbbbk",
+       "kbbbbbbk",
+       ".kbbbbk.",
+       ".kb..bk.",
+       ".kb..bk.",
+       ".kk..kk."
+      ]
+     ]
+    },
+    "death": {
+     "fps": 5,
+     "loop": false,
+     "dirs": 1,
+     "frames": [
+      [
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "..kkkk..",
+       ".kssssk.",
+       "kbbbbbbk",
+       ".kkkkkk."
+      ],
+      [
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "kkkkkkkk",
+       "ksbbbbbk",
+       "kkkkkkkk"
+      ]
+     ]
+    }
+   }
+  },
+  {
+   "name": "test_imp",
+   "size": [
+    8,
+    12
+   ],
+   "anchor": [
+    4.0,
+    12
+   ],
+   "palette": {
+    ".": null,
+    "k": "#1d2b53",
+    "s": "#ff77a8",
+    "e": "#fff1e8",
+    "b": "#ff004d",
+    "w": "#c2c3c7"
+   },
+   "animations": {
+    "idle": {
+     "fps": 2,
+     "dirs": 4,
+     "frames": {
+      "S": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ]
+      ],
+      "E": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ]
+      ],
+      "N": [
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ]
+      ]
+     }
+    },
+    "walk": {
+     "fps": 7,
+     "dirs": 4,
+     "frames": {
+      "S": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kesesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb.bk..",
+        ".kb.bk..",
+        ".kk.kk.."
+       ]
+      ],
+      "E": [
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kssssk.",
+        ".kssesk.",
+        ".kssssk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb.bk..",
+        ".kb.bk..",
+        ".kk.kk.."
+       ]
+      ],
+      "N": [
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb..bk.",
+        ".kb..bk.",
+        ".kk..kk."
+       ],
+       [
+        "..kkkk..",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        ".kkkkkk.",
+        "..kkkk..",
+        ".kbbbbk.",
+        "kbbbbbbk",
+        "kbbbbbbk",
+        ".kbbbbk.",
+        ".kb.bk..",
+        ".kb.bk..",
+        ".kk.kk.."
+       ]
+      ]
+     }
+    },
+    "attack": {
+     "fps": 12,
+     "loop": false,
+     "dirs": 1,
+     "events": {
+      "1": "hit"
+     },
+     "frames": [
+      [
+       "..kkkk..",
+       ".kssssk.",
+       ".kesesk.",
+       ".kssssk.",
+       "wwkkkk..",
+       "wkbbbbk.",
+       "wbbbbbbk",
+       "kbbbbbbk",
+       ".kbbbbk.",
+       ".kb..bk.",
+       ".kb..bk.",
+       ".kk..kk."
+      ],
+      [
+       "..kkkk..",
+       ".kssssk.",
+       ".kesesk.",
+       ".kssssk.",
+       "..kkkk.w",
+       ".kbbbbkw",
+       "kbbbbbbw",
+       "kbbbbbbk",
+       ".kbbbbk.",
+       ".kb..bk.",
+       ".kb..bk.",
+       ".kk..kk."
+      ],
+      [
+       "..kkkk..",
+       ".kssssk.",
+       ".kesesk.",
+       ".kssssk.",
+       "..kkkk..",
+       ".kbbbbk.",
+       "kbbbbbbk",
+       "kbbbbbbk",
+       ".kbbbbk.",
+       ".kb..bk.",
+       ".kb..bk.",
+       ".kk..kk."
+      ]
+     ]
+    },
+    "death": {
+     "fps": 5,
+     "loop": false,
+     "dirs": 1,
+     "frames": [
+      [
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "..kkkk..",
+       ".kssssk.",
+       "kbbbbbbk",
+       ".kkkkkk."
+      ],
+      [
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "........",
+       "kkkkkkkk",
+       "ksbbbbbk",
+       "kkkkkkkk"
+      ]
+     ]
+    }
+   }
+  }
+ ],
+ "abilities": {
+  "test_strike": {
+   "name": "Strike",
+   "cooldown": 0.45,
+   "castTime": 0.12,
+   "recovery": 0.1,
+   "targeting": "direction",
+   "range": 1.4,
+   "anim": "attack",
+   "sound": "swing",
+   "effects": [
+    {
+     "type": "melee",
+     "range": 1.4,
+     "arc": 110,
+     "damage": {
+      "type": "physical",
+      "amount": [
+       8,
+       12
+      ],
+      "critChance": 0.15
+     }
+    }
+   ]
+  },
+  "test_bolt": {
+   "name": "Bolt",
+   "cooldown": 1.2,
+   "cost": {
+    "mana": 10
+   },
+   "castTime": 0.2,
+   "range": 12,
+   "targeting": "direction",
+   "anim": "attack",
+   "sound": "cast",
+   "effects": [
+    {
+     "type": "projectile",
+     "speed": 14,
+     "sprite": "fx_orb",
+     "tint": [
+      1,
+      0.6,
+      0.25
+     ],
+     "radius": 0.3,
+     "trail": {
+      "preset": "ember",
+      "interval": 0.06
+     },
+     "expireOnHit": true,
+     "damage": {
+      "type": "fire",
+      "amount": [
+       14,
+       20
+      ],
+      "critChance": 0.2
+     },
+     "onExpire": [
+      {
+       "type": "particles",
+       "preset": "explosion",
+       "at": "point"
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "materials": [
+  {
+   "name": "floor",
+   "generator": "tiles",
+   "color": [
+    0.5,
+    0.5,
+    0.56
+   ],
+   "scale": 4,
+   "gap": 0.06,
+   "size": 32
+  },
+  {
+   "name": "wall",
+   "generator": "brick",
+   "color": [
+    0.55,
+    0.3,
+    0.25
+   ],
+   "rows": 8,
+   "cols": 4,
+   "size": 32
+  },
+  {
+   "name": "lava",
+   "generator": "lava",
+   "color": [
+    1,
+    0.45,
+    0.1
+   ],
+   "scale": 3,
+   "size": 32,
+   "frames": 3,
+   "fps": 3,
+   "emissive": true
+  },
+  {
+   "name": "stone",
+   "generator": "noise",
+   "color": [
+    0.42,
+    0.42,
+    0.46
+   ],
+   "contrast": 0.2,
+   "scale": 6,
+   "size": 16
+  }
+ ],
+ "sky": {
+  "color": [
+   0.2,
+   0.24,
+   0.4
+  ],
+  "ambient": [
+   0.55,
+   0.55,
+   0.65
+  ],
+  "sunColor": [
+   0.9,
+   0.85,
+   0.75
+  ],
+  "sunDir": [
+   -0.4,
+   -0.8,
+   -0.3
+  ],
+  "fogDensity": 0.0
+ },
+ "name": "test_topdown",
+ "brushes": [
+  {
+   "type": "box",
+   "min": [
+    -15,
+    -1,
+    -15
+   ],
+   "max": [
+    15,
+    0,
+    15
+   ],
+   "material": "floor"
+  },
+  {
+   "type": "box",
+   "min": [
+    -16,
+    0,
+    -16
+   ],
+   "max": [
+    16,
+    3,
+    -15
+   ],
+   "material": "wall"
+  },
+  {
+   "type": "box",
+   "min": [
+    -16,
+    0,
+    15
+   ],
+   "max": [
+    16,
+    3,
+    16
+   ],
+   "material": "wall"
+  },
+  {
+   "type": "box",
+   "min": [
+    -16,
+    0,
+    -15
+   ],
+   "max": [
+    -15,
+    3,
+    15
+   ],
+   "material": "wall"
+  },
+  {
+   "type": "box",
+   "min": [
+    15,
+    0,
+    -15
+   ],
+   "max": [
+    16,
+    3,
+    15
+   ],
+   "material": "wall"
+  },
+  {
+   "type": "box",
+   "min": [
+    -2,
+    0,
+    -4
+   ],
+   "max": [
+    -1,
+    2.5,
+    5
+   ],
+   "material": "wall"
+  },
+  {
+   "type": "cylinder",
+   "min": [
+    -7,
+    0,
+    -2
+   ],
+   "max": [
+    -5,
+    2,
+    0
+   ],
+   "sides": 10,
+   "material": "stone"
+  },
+  {
+   "type": "ramp",
+   "min": [
+    0,
+    0,
+    -14
+   ],
+   "max": [
+    4,
+    1,
+    -9
+   ],
+   "axis": "z",
+   "dir": -1,
+   "low": 0,
+   "material": "stone"
+  }
+ ],
+ "entities": [
+  {
+   "classname": "info_player_start",
+   "origin": [
+    -10,
+    0,
+    10
+   ],
+   "angles": [
+    0,
+    90,
+    0
+   ]
+  },
+  {
+   "classname": "info_landmark",
+   "name": "from_b",
+   "origin": [
+    10,
+    0,
+    9
+   ],
+   "angles": [
+    0,
+    180,
+    0
+   ]
+  },
+  {
+   "classname": "light",
+   "origin": [
+    -8,
+    4,
+    8
+   ],
+   "color": [
+    1.0,
+    0.8,
+    0.5
+   ],
+   "radius": 12
+  },
+  {
+   "classname": "light",
+   "origin": [
+    8,
+    3,
+    -6
+   ],
+   "color": [
+    1.0,
+    0.45,
+    0.2
+   ],
+   "radius": 12
+  },
+  {
+   "classname": "actor_npc",
+   "name": "imp_a",
+   "title": "Test Imp",
+   "sprite": "test_imp",
+   "origin": [
+    4,
+    0,
+    6
+   ],
+   "health": 40,
+   "speed": 3,
+   "scale": 1.1,
+   "aggroRadius": 9,
+   "loseRadius": 16,
+   "attackRange": 1.2,
+   "attack": {
+    "interval": 1.2,
+    "windup": 0.25,
+    "damage": {
+     "type": "physical",
+     "amount": 6
+    }
+   }
+  },
+  {
+   "classname": "actor_npc",
+   "name": "imp_b",
+   "title": "Test Imp",
+   "sprite": "test_imp",
+   "origin": [
+    8,
+    0,
+    10
+   ],
+   "health": 40,
+   "speed": 3,
+   "groupAggro": 6,
+   "aggroRadius": 7,
+   "attackRange": 1.2,
+   "respawn": 8
+  },
+  {
+   "classname": "prop_sprite",
+   "sprite": "fx_fire",
+   "origin": [
+    0,
+    0,
+    -12
+   ],
+   "scale": 2,
+   "shadow": 0.3
+  },
+  {
+   "classname": "func_hazard",
+   "name": "lava",
+   "material": "lava",
+   "min": [
+    5,
+    -0.2,
+    -8
+   ],
+   "max": [
+    11,
+    0.15,
+    -3
+   ],
+   "moveDir": [
+    0,
+    1,
+    0
+   ],
+   "distance": 0.5,
+   "speed": 0.4,
+   "auto": true,
+   "wait": 2,
+   "damage": {
+    "type": "fire",
+    "amount": 6
+   },
+   "interval": 0.6,
+   "particles": "ember",
+   "particleRate": 4
+  },
+  {
+   "classname": "trigger_changelevel",
+   "name": "door_to_b",
+   "min": [
+    11,
+    0,
+    10
+   ],
+   "max": [
+    14,
+    2,
+    14
+   ],
+   "map": "game/maps/test_topdown_b.json",
+   "landmark": "from_a"
+  }
+ ]
+}

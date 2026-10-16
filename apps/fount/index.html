@@ -16,7 +16,7 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0e13; }
   body { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--ink); }
-  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: crosshair; image-rendering: pixelated; }
 
   .overlay { position: fixed; pointer-events: none; }
 
@@ -136,6 +136,8 @@ import { Game } from './engine/game.js';
 const MAPS = [
   { file: 'game/maps/dm_crucible.json', label: 'dm_crucible — arena, NPCs, ragdolls' },
   { file: 'game/maps/test_playground.json', label: 'test_playground — physics + IO sandbox' },
+  { file: 'game/maps/test_topdown.json', label: 'test_topdown — top-down pixel-art sandbox' },
+  { file: 'game/maps/test_topdown_b.json', label: 'test_topdown_b — destination of the door in test_topdown' },
 ];
 
 const hud = {
@@ -151,9 +153,14 @@ const hud = {
   damageEl: document.querySelector('#damage'),
   deadEl: document.querySelector('#dead'),
   lookEl: document.querySelector('#lookhint'),
+  crosshairEl: document.querySelector('#crosshair'),
   update(s) {
-    // Never let a dead mouse be silent: say which look mode is actually live.
-    if (s.pointerLocked) {
+    // Top-down maps keep the cursor free: no crosshair, no mouse-capture hint.
+    const topdown = s.mode === 'topdown';
+    this.crosshairEl.style.display = topdown ? 'none' : '';
+    if (topdown) {
+      this.lookEl.style.display = 'none';
+    } else if (s.pointerLocked) {
       this.lookEl.style.display = 'none';
     } else {
       this.lookEl.style.display = 'block';

@@ -8,6 +8,7 @@ A map is one JSON document in `apps/fount/game/maps/<name>.json`. Nothing is com
 - [Coordinate system](#coordinate-system)
 - [Brushes](#brushes)
 - [Materials](#materials)
+- [Engine config blocks](#engine-config-blocks)
 - [Sky and lighting](#sky-and-lighting)
 - [Entities](#entities)
 - [Scale reference](#scale-reference)
@@ -94,7 +95,27 @@ Custom materials are generated procedurally at load — there are no image files
 | `grass` | `scale`, `seed` |
 | `panel` | `scale`, `border`, `seed` |
 
-`emissive: true` makes a material ignore lighting — use it for light fixtures and screens.
+`emissive: true` makes a material ignore lighting — use it for light fixtures, screens, lava. (Older builds declared this flag but ignored it; it now works per material.)
+
+Two more generators animate seamlessly, looping their `phase`: `lava` (dark crust with hot cracks; `scale`, `seed`, `drift`; use a `color` like `[1, 0.45, 0.1]`) and `water` (`scale`, `seed`).
+
+| Material key | Meaning |
+|---|---|
+| `size` | Texture resolution in pixels (16, 32, 64...). Default is the map's `render.textureSize`, else 256. Small sizes give chunky pixel textures |
+| `frames`, `fps` | An animated material: `frames` images (max 16) played at `fps` (default 4). `lava` and `water` advance smoothly; other generators reseed per frame, which reads as flicker (good for torches and runes) |
+| `emissive` | Ignore lighting |
+
+Up to 64 materials can animate or glow. Texture filtering is `nearest` whenever the map has a `render.resolution`, so close textures never blur; see `rpg.md` for the `render` block. Brushes tile a texture by world size (`uvScale`, default 0.5 is one repeat per 2 m), so for pixel art choose `uvScale` so a texel lands on about one screen pixel.
+
+## Engine config blocks
+
+A map can also carry blocks that configure the engine rather than describe geometry: `mode`, `camera`, `render`, `player`, `nav`, `sprites`, `spriteDefs`, `abilities`, `statuses`, `particles`, `relations`. They are optional (a map with none is the classic first-person game), and the same blocks can live game-wide in a file loaded with `game.loadConfig()`. Their keys are in `rpg.md`; sprites are in `sprites-and-audio.md`.
+
+```json
+{ "mode": "topdown",
+  "camera": { "pitch": 58, "yaw": 45, "ortho": true, "pixelsPerUnit": 16 },
+  "render": { "resolution": [480, 270], "palette": ["#000000", "#1d2b53", "#7e2553"], "textureSize": 32 } }
+```
 
 **If you define `materials` at all, you replace the built-in list entirely.** Any brush referencing a name you did not define falls back to layer 0.
 

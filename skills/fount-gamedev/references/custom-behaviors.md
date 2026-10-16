@@ -9,6 +9,7 @@ When a game needs a mechanic no built-in class covers, register a new classname.
 - [Worked example: a turret](#worked-example-a-turret)
 - [Worked example: a pickup that changes the rules](#worked-example-a-pickup-that-changes-the-rules)
 - [Drawing](#drawing)
+- [Sprites, actors and events](#sprites-actors-and-events)
 - [What not to do](#what-not-to-do)
 
 ## defineEntity
@@ -51,7 +52,11 @@ world.fireOutput(entity, 'OnSomethingHappened', activatorEntity, 'optional param
 | `world.context.materialIndex` | `Map` of material name → texture layer |
 | `world.context.registerDynamicBrush(b)` | Register moving collision geometry |
 | `world.context.findTriggerBrush(name)` | Look up a `"trigger": true` brush volume |
-| `world.context.game` | The `Game` instance, for anything else |
+| `world.context.actors` | The `ActorSystem`: `spawn(options)`, `actors`, `inRadius(point, r)`, `nearestHostile(actor)`, `nav`, `combat`, `abilities` (see `rpg.md`) |
+| `world.context.sprites` | The sprite library: `get(name)`, `has(name)` |
+| `world.context.particles` | `burst(preset, pos, opts)`, `emitter(...)` |
+| `world.context.events` | The game-wide event emitter: `on`, `off`, `emit` |
+| `world.context.game` | The `Game` instance, for anything else (`mode`, `cameraYaw`, `travel()`, `hover`, `input`) |
 
 Traces return `{ hit, fraction, normal, endPos, startSolid }`. Always check `hit` before trusting `normal`.
 
@@ -164,6 +169,28 @@ defineEntity('item_lowgrav', {
 | `renderer.setEmissive(true/false)` | Unlit draws, for anything that should glow |
 
 There are no models to load. Compose shapes from these primitives — it is how the NPCs and ragdolls are drawn.
+
+## Sprites, actors and events
+
+A behaviour that wants a character rather than a box spawns an actor and lets the engine animate and draw it:
+
+```js
+defineEntity('boss_warden', {
+  spawn(entity, world) {
+    const actor = world.context.actors.spawn({
+      name: 'Warden', faction: 'enemy', feet: entity.origin, health: 400,
+      sprite: 'warden', spriteScale: 2, ai: { aggroRadius: 12, attackAbility: 'warden_slam' },
+    });
+    actor.entity = entity;
+    actor.on('death', () => world.fireOutput(entity, 'OnDeath'));
+    entity.state.actor = actor;
+  },
+});
+```
+
+The actor system updates and draws its actors itself (`think` only needs to sync `entity.origin`). To react to anything, subscribe once in `spawn`: `world.context.events.on('damage', (ev) => ...)`. Do not poll every actor in `think`.
+
+Sprites are drawn in `draw` with a `SpriteInstance`, which queues them for the end of the frame, so draw order between sprites does not matter (depth sorts them); return early when `shadowPass` is true. Use `renderer.drawBrushBox(min, max, layer, tint, uvScale, shadowPass)` for a box whose texture tiles by world size instead of stretching across each face the way `drawBox` does.
 
 ## What not to do
 

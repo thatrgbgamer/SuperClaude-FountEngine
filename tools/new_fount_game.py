@@ -5,6 +5,7 @@
     python3 tools/new_fount_game.py ../my-game --name "Cliffside"
     python3 tools/new_fount_game.py ../existing-repo --vendor-only
     python3 tools/new_fount_game.py ../my-game --update
+    python3 tools/new_fount_game.py ../my-game --update --editor
     python3 tools/new_fount_game.py ../my-game --dry-run
 
 The result is self-sufficient: the engine is vendored in (it has no
@@ -275,6 +276,26 @@ def vendor(target, dry_run):
     return actions
 
 
+def refresh_editor(target, dry_run):
+    """Replace editor/index.html with the engine's current editor.
+
+    The editor is not one of the managed paths, because it is yours once
+    scaffolded (its map list is edited by hand). --editor is the opt-in way to
+    pick up editor features, such as the top-down view: it takes the engine's
+    editor and rebuilds its map list from whatever is in your game/maps/, so
+    nothing you registered is lost. The game's own index.html is never touched.
+    """
+    maps_dir = target / "game" / "maps"
+    maps = [(f"game/maps/{p.name}", p.stem) for p in sorted(maps_dir.glob("*.json"))] if maps_dir.is_dir() else []
+    dest = target / "editor" / "index.html"
+    action = "refresh" if dest.exists() else "add"
+    if not dry_run:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        text = (ENGINE_SRC / "editor" / "index.html").read_text(encoding="utf-8")
+        dest.write_text(rewrite_map_list(text, maps) if maps else text, encoding="utf-8")
+    return action, len(maps)
+
+
 def scaffold(target, title, slug, holder, dry_run):
     """Create the project-owned files, but never clobber ones already there."""
     created, skipped = [], []
@@ -356,6 +377,9 @@ def main():
                         help="only add engine/ and the skill, for an existing project")
     parser.add_argument("--update", action="store_true",
                         help="refresh the vendored engine and skill, leaving game content alone")
+    parser.add_argument("--editor", action="store_true",
+                        help="also replace editor/index.html with the engine's current editor, "
+                             "keeping a map list built from your game/maps/ (never touches index.html)")
     parser.add_argument("--no-git", action="store_true", help="skip git init")
     parser.add_argument("--dry-run", action="store_true", help="show what would happen")
     args = parser.parse_args()
@@ -382,6 +406,11 @@ def main():
     for rel, action in vendor(target, args.dry_run):
         verb = "would " + action if args.dry_run else action + "ed" if action == "refresh" else "added"
         print(f"  {GREEN}{verb}{RESET} {rel}")
+
+    if args.editor:
+        action, count = refresh_editor(target, args.dry_run)
+        verb = f"would {action}" if args.dry_run else ("refreshed" if action == "refresh" else "added")
+        print(f"  {GREEN}{verb}{RESET} editor/index.html {DIM}({count} maps listed from game/maps/){RESET}")
 
     if not vendor_only:
         created, skipped = scaffold(target, title, slug, args.holder, args.dry_run)
@@ -415,8 +444,8 @@ def main():
 Fount is now vendored into this project. Nothing else was added or changed.
 
 To wire it up, serve the directory over HTTP and point a page at
-`engine/game.js` — copy `index.html` and `editor/index.html` from the Fount
-repo if you want the stock shell and editor.
+`engine/game.js` — copy `index.html` from the Fount repo if you want the stock
+shell, and add `--editor` to this command for the editor.
 
 A Claude Code session opened here now finds the fount-gamedev skill at
 .claude/skills/, so it already knows the map format and entity library.
