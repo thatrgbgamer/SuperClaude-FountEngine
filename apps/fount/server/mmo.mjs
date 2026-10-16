@@ -19,6 +19,11 @@ import { attachWebSocketServer } from './websocket.mjs';
 import { GameData } from './gamedata.mjs';
 import { InstanceManager } from './instances.mjs';
 import { createStaticHandler } from './static.mjs';
+import { createStore } from './store.mjs';
+import { Auth } from './auth.mjs';
+import { CharacterService, Persistence, CharacterError } from './characters.mjs';
+import { createApi } from './api.mjs';
+import { Economy } from '../engine/economy.js';
 import { LIMITS, COMMAND_HZ, PROTOCOL_VERSION, parseHello, parseCommand, parseAbility, parseInteract, parsePing, reject } from '../engine/protocol.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -36,6 +41,14 @@ export const DEFAULTS = {
   defaultCap: 30,
   serveFiles: true,
   quiet: false,
+  // Accounts. 'none': anyone may join as a guest (nothing is saved): fine for development.
+  // 'optional': guests and logged-in players. 'required': a login and a character to play.
+  auth: 'none',
+  store: null,                  // a Store, or { kind, path }; default is a database under <root>/data
+  authOptions: {},
+  trustProxy: false,            // honour X-Forwarded-For (only behind a proxy you control)
+  corsOrigin: null,             // origin(s) allowed to call /api from another site
+  apiRateLimit: 120,            // /api requests per address per minute
 };
 
 const MAX_MESSAGES_PER_SECOND = 240;
@@ -59,12 +72,39 @@ export async function startServer(userOptions = {}) {
     options: { defaultCap: options.defaultCap, reconnectGraceSeconds: options.reconnectGraceSeconds, interest: options.interest },
   });
 
+  // ---- accounts, characters and the economy ----------------------------------------
+
+  let store = null, auth = null, characters = null, persistence = null, api = null;
+  const accountsOn = options.auth !== 'none';
+  if (accountsOn || options.store) {
+    store = options.store && typeof options.store.createAccount === 'function'
+      ? options.store
+      : await createStore({ path: path.join(options.root, 'data'), ...(options.store || {}) });
+    auth = new Auth(store, options.authOptions);
+    characters = new CharacterService({ store, gameData, manager, log });
+    persistence = new Persistence({ store, gameData, manager, log, intervalSeconds: gameData.config.server?.autosaveSeconds ?? 45 });
+    persistence.start();
+    api = createApi({ auth, characters, store, trustProxy: options.trustProxy, corsOrigin: options.corsOrigin, rateLimit: options.apiRateLimit, log });
+    log(`accounts: ${options.auth}, store ${store.info().kind}${store.info().path ? ` at ${store.info().path}` : ''}`);
+  }
+  // Every gold change is written to the ledger when there is a character to credit it to.
+  manager.economy = new Economy({
+    goldField: gameData.config.server?.goldField,
+    sink: (tx) => {
+      if (!store || !tx.character) return;
+      store.addTransaction({ characterId: tx.character.id, kind: tx.kind, delta: tx.delta, balance: tx.balance, reason: tx.reason, meta: tx.meta, ts: tx.ts })
+        .catch((err) => log(`could not log a transaction: ${err.message}`));
+    },
+  });
+  const loggingIn = new Set();
+
   const sessions = new Set();
   let nextPlayer = 1;
   const startedAt = Date.now();
   const serveFiles = options.serveFiles ? createStaticHandler(options.root) : (req, res) => res.writeHead(404).end();
 
-  const httpServer = http.createServer((req, res) => {
+  const httpServer = http.createServer(async (req, res) => {
+    if (api && await api(req, res)) return;
     if (req.url === '/api/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(status()));
@@ -157,6 +197,12 @@ export async function startServer(userOptions = {}) {
       // Reconnecting: a valid resume token puts the player straight back where they were.
       if (hello.resume && manager.resume(session, hello.resume)) { session.joining = false; return; }
 
+      // Logged in: the token names the account, the hello names the character, and the character decides who they are.
+      if (accountsOn && (options.auth === 'required' || hello.token)) {
+        await handleAccountJoin(session, hello);
+        return;
+      }
+
       // Which map: the game's start map. A client choosing its own map is a development convenience.
       let mapPath = startMap;
       if (options.allowMapChoice && hello.map && gameData.mapExists(hello.map)) mapPath = hello.map;
@@ -171,6 +217,46 @@ export async function startServer(userOptions = {}) {
       session.connection.close(4007, 'join failed');
     } finally {
       session.joining = false;
+    }
+  }
+
+  async function handleAccountJoin(session, hello) {
+    const account = options.authenticator
+      ? await options.authenticator(hello).then((r) => (r && r.accountName ? store.findAccount(r.accountName) : null))
+      : await auth.verifyToken(hello.token);
+    if (!account) { session.send(reject('Please log in.')); session.connection.close(4010, 'login required'); return; }
+    const charId = /^[1-9]\d{0,12}$/.test(hello.character) ? Number(hello.character) : NaN;
+    if (!Number.isInteger(charId)) { session.send(reject('Choose a character to play.')); session.connection.close(4011, 'no character'); return; }
+    if (loggingIn.has(charId)) { session.send(reject('That character is already logging in.')); session.connection.close(4012, 'busy'); return; }
+    loggingIn.add(charId);
+    try {
+      const online = manager.playerForCharacter(charId);
+      if (online && online.disconnectedAt !== null) {
+        // Their connection dropped and the body is still in the world: this is them coming back.
+        const owner = await store.getCharacter(charId);
+        if (owner && owner.accountId === account.id && manager.resumeCharacter(session, charId)) return;
+      } else if (online) {
+        session.send(reject('That character is already in the game.'));
+        session.connection.close(4013, 'already online');
+        return;
+      }
+      const c = await characters.forJoin(account, charId);
+      const pos = c.record.position;
+      const mapPath = pos && gameData.mapExists(pos.map) ? pos.map : startMap;
+      const config = { ...(gameData.callHook('playerConfig', { name: c.name, class: c.class, record: c.record, character: c }) || {}), name: c.name };
+      await manager.join(session, {
+        mapPath, config, carry: c.record.snapshot,
+        feet: pos && mapPath === pos.map ? pos.feet : undefined, yaw: pos ? pos.yaw : undefined,
+        character: { id: c.id, accountId: c.accountId, name: c.name },
+      });
+      log(`${c.name} (account ${account.name}) joined ${session.instance.id} (${manager.playerCount} online)`);
+    } catch (err) {
+      const known = err instanceof CharacterError;
+      if (!known) log(`join failed: ${err.stack || err.message}`);
+      session.send(reject(known ? err.message : 'Could not join the game: ' + err.message));
+      session.connection.close(4007, 'join failed');
+    } finally {
+      loggingIn.delete(charId);
     }
   }
 
@@ -206,13 +292,17 @@ export async function startServer(userOptions = {}) {
   log(`${options.name}: http://localhost:${port}/  (${startMap})`);
 
   return {
-    port, manager, gameData, options, sessions, status,
+    port, manager, gameData, options, sessions, status, store, auth, characters, persistence,
+    economy: manager.economy,
     async close() {
       stopped = true;
       clearTimeout(timer);
       ws.stop();
+      // Everyone's character is on disk before the doors close.
+      if (persistence) { await persistence.saveAll('shutdown'); persistence.stop(); }
       for (const s of sessions) { try { s.connection.close(1001, 'server shutting down'); } catch { /* gone */ } }
       await new Promise((resolve) => httpServer.close(resolve));
+      if (store) await store.close();
     },
   };
 }
@@ -234,6 +324,10 @@ function parseArgs(argv) {
     else if (a === '--max') o.maxPlayers = parseInt(next(), 10);
     else if (a === '--cap') o.defaultCap = parseInt(next(), 10);
     else if (a === '--allow-map-choice') o.allowMapChoice = true;
+    else if (a === '--auth') o.auth = next();
+    else if (a === '--store') o.store = { kind: next() };
+    else if (a === '--data') o.store = { ...(o.store || {}), path: path.resolve(next()) };
+    else if (a === '--trust-proxy') o.trustProxy = true;
     else if (a === '--help' || a === '-h') {
       console.log(`Fount online server
 
@@ -247,6 +341,10 @@ function parseArgs(argv) {
   --start-map <path>  Map new players start in (default: "server.startMap" in the config)
   --max <n>           Maximum connected players (default 200)
   --cap <n>           Default players per instance, when a map does not say (default 30)
+  --auth <mode>       none (guests, nothing saved) | optional | required (login + character)
+  --store <kind>      auto | sqlite | file | memory (default auto)
+  --data <path>       Where the store lives (default <root>/data)
+  --trust-proxy       Believe X-Forwarded-For (only behind a proxy you run)
 `);
       process.exit(0);
     }

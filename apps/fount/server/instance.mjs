@@ -17,7 +17,8 @@ import { makeRandom } from '../engine/math.js';
 import { SIM_DT, STEPS_PER_COMMAND, COMMAND_HZ, LIMITS, round2 } from '../engine/protocol.js';
 import '../engine/entities.js';
 import '../engine/entities_rpg.js';
-import { Replicator, ClientView, EVERYTHING } from './replication.mjs';
+import { Replicator, ClientView } from './replication.mjs';
+import { SpatialInterest } from './interest.mjs';
 
 const MAX_REACH = 60;          // an aim point or target further than this from the caster is ignored
 const MAX_ABILITIES_PER_SECOND = 10;
@@ -126,7 +127,7 @@ export class Instance {
     this.tickMsMax = 0;
     this.players = [];
     this.tickEvents = [];
-    this.interest = options.interest || EVERYTHING;
+    this.interest = options.interest || null;     // built in load() from the config unless given
     this.closed = false;
   }
 
@@ -170,6 +171,7 @@ export class Instance {
     this.world = new EntityWorld({
       collision: this.collision,
       actors: this.actors,
+      economy: this.manager.economy,
       particles,
       sprites: this.gameData.sprites,
       events: this.bus,
@@ -189,7 +191,12 @@ export class Instance {
     this.entityStart = start;
     this.landmarks = entities.filter((e) => e.classname === 'info_landmark');
 
-    this.replicator = new Replicator(this, this.interest);
+    const srv = this.config.server || {};
+    const block = (this.doc && this.doc.instance) || {};
+    const radius = block.viewRadius ?? srv.viewRadius ?? 45;
+    const bandwidth = block.bandwidth ?? srv.bandwidth ?? 0;         // bytes per second per client; 0 = unlimited
+    if (!this.interest) this.interest = new SpatialInterest({ radius, margin: block.interestMargin ?? srv.interestMargin ?? 1.15 });
+    this.replicator = new Replicator(this, this.interest, { bytesPerTick: bandwidth > 0 ? bandwidth / 30 : Infinity });
     this.wireEvents();
     this.gameData.callHook('instanceCreated', this);
   }
@@ -251,20 +258,29 @@ export class Instance {
    * landmark, carry (an actor snapshot to restore) }. Returns the ServerPlayer.
    */
   addPlayer(info) {
-    const { feet, yaw } = this.spawnFor(info.landmark);
+    let { feet, yaw } = this.spawnFor(info.landmark);
+    // A returning character stands where they were saved, unless that spot is now inside a wall.
+    if (info.feet && !this.collision.pointInSolid([info.feet[0], info.feet[1] + 0.9, info.feet[2]], [0.35, 0.85, 0.35])) {
+      feet = [info.feet[0], info.feet[1], info.feet[2]];
+      yaw = info.yaw ?? yaw;
+    }
     const cfg = { ...(this.config.player || {}), ...(info.config || {}) };
     const player = createPlayer(this.actors, cfg, feet, yaw, info.carry, (actor, c) => new ServerPlayer(actor, c, this, info.session));
     player.id = info.id;
     player.name = cfg.name;
+    player.character = info.character || null;      // { id, accountId, name }: set when the player is logged in
     this.players.push(player);
     this.emptySince = null;
     this.gameData.callHook('playerJoined', this, player, info);
+    this.manager.events.emit('player-joined', player, this);
     return player;
   }
 
   removePlayer(player) {
     const i = this.players.indexOf(player);
     if (i < 0) return;
+    // Told while the actor still exists, so the character can be saved as it is.
+    this.manager.events.emit('player-left', player, this);
     this.gameData.callHook('playerLeft', this, player);
     this.players.splice(i, 1);
     this.world.forgetPlayer(player.id);

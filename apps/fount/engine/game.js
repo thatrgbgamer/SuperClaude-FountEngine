@@ -25,6 +25,7 @@ import { loadAssets, mergeConfig, pickMapConfig } from './assets.js';
 import { ParticleSystem, FloatingTexts } from './particles.js';
 import { createPlayer, stepTopDownPlayer } from './rpg_player.js';
 import { OnlineLink, ReplicaActors, OnlinePlayer } from './online.js';
+import { Economy } from './economy.js';
 
 // Single source of truth, shared with the ragdoll solver: impulses convert
 // force to a verlet position offset using this exact value, so the two drifting
@@ -331,6 +332,8 @@ export class Game {
       // The one local player, in the same array shape an online server uses, so
       // an entity written for many players works unchanged in single player.
       players: [this.player],
+      // The same call a server's scripts make; single player just keeps no ledger.
+      economy: new Economy({ goldField: (cfg.server || {}).goldField }),
       travel: (player, map, landmark) => this.travel(map, landmark),
       listener: () => this.player.eyePosition,
       registerDynamicBrush: (brush) => this.dynamicBrushes.push(brush),

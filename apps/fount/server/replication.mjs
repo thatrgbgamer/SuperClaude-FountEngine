@@ -13,11 +13,14 @@ import { round1, round2, facingToDegrees } from '../engine/protocol.js';
 export class ClientView {
   constructor() {
     this.actors = new Map();        // actor id -> the fields last sent
+    this.sentTick = new Map();      // actor id -> the tick it was last sent on
     this.entityVer = new Map();     // entity id -> the version last sent
     this.spawned = new Set();       // dynamic entity ids the client has been told to create
     this.hidden = new Set();        // map entity ids the client has been told to hide
     this.dataStr = null;            // last actor.data sent (own actor only)
     this.hotbarStr = null;
+    this.hadProjectiles = false;
+    this.deferred = 0;              // actor updates the budget held back last tick
   }
 }
 
@@ -68,9 +71,12 @@ export const EVERYTHING = {
 };
 
 export class Replicator {
-  constructor(instance, interest = EVERYTHING) {
+  /** options: { bytesPerTick } a ceiling on one client's snapshot (Infinity for none); { maxEvents }. */
+  constructor(instance, interest = EVERYTHING, options = {}) {
     this.instance = instance;
     this.interest = interest;
+    this.bytesPerTick = options.bytesPerTick ?? Infinity;
+    this.maxEvents = options.maxEvents ?? 96;
     this.tickNo = -1;
     this.actorCache = new Map();
   }
@@ -114,28 +120,6 @@ export class Replicator {
       ack: player.ackReported,
     };
 
-    // ---- actors
-    const visible = this.interest.actors(player, inst);
-    const a = [];
-    const seen = new Set();
-    for (const actor of visible) {
-      seen.add(actor.id);
-      const next = this.fieldsOf(actor);
-      const prev = view.actors.get(actor.id);
-      const d = diffFields(prev, next);
-      if (!prev || Object.keys(d).length) {
-        d.i = actor.id;
-        a.push(d);
-        view.actors.set(actor.id, next);
-      }
-    }
-    const x = [];
-    for (const id of view.actors.keys()) {
-      if (!seen.has(id)) { x.push(id); view.actors.delete(id); }
-    }
-    if (a.length) snap.a = a;
-    if (x.length) snap.x = x;
-
     // ---- the player's own authoritative state: full precision, because the client replays inputs on top of it
     snap.own = this.ownBlock(player, view);
 
@@ -155,11 +139,16 @@ export class Replicator {
     const live = new Set();
     for (const entity of world.entities) {
       if (entity.removed) continue;
-      const shown = (!entity.visibleTo || entity.visibleTo(player)) && this.interest.entityVisible(player, entity, inst);
-      if (!shown) {
-        if (entity.dynamic) continue;                      // never announced, or removed below
+      if (entity.visibleTo && !entity.visibleTo(player)) {
+        // Hidden from this player on purpose: a map entity exists on their client already, so tell it to hide.
+        if (entity.dynamic) continue;
         if (!view.hidden.has(entity.id)) { view.hidden.add(entity.id); e.push({ i: entity.id, h: 1 }); }
         live.add(entity.id);
+        continue;
+      }
+      if (!this.interest.entityVisible(player, entity, inst)) {
+        // Too far to matter: a map entity stays as it was on their client; a runtime one is withdrawn.
+        if (!entity.dynamic) live.add(entity.id);
         continue;
       }
       live.add(entity.id);
@@ -189,11 +178,62 @@ export class Replicator {
       if (item.only === undefined && !this.interest.eventVisible(player, item, inst)) continue;
       ev.push(item.ev);
     }
+    if (ev.length > this.maxEvents) {
+      // A storm of events must not crowd out the state: keep what concerns this player, then the newest.
+      const mine = own.id;
+      const concerns = ev.filter((q) => q.a === mine || q.s === mine || q.t === mine);
+      const rest = ev.filter((q) => !(q.a === mine || q.s === mine || q.t === mine));
+      const keep = Math.min(concerns.length, this.maxEvents / 2);
+      ev.length = 0;
+      ev.push(...rest.slice(-(this.maxEvents - keep)), ...concerns.slice(-keep));
+    }
     if (player.pendingEvents.length) { ev.push(...player.pendingEvents); player.pendingEvents.length = 0; }
     if (ev.length) snap.ev = ev;
 
-    void own;
+    // ---- actors in view, fitted to what the byte budget has left
+    this.actorUpdates(player, view, snap);
     return snap;
+  }
+
+  actorUpdates(player, view, snap) {
+    const inst = this.instance;
+    const me = player.actor;
+    const mp = me.controller.position;
+    const seen = new Set();
+    const candidates = [];
+    for (const actor of this.interest.actors(player, inst)) {
+      seen.add(actor.id);
+      const next = this.fieldsOf(actor);
+      const prev = view.actors.get(actor.id);
+      const d = diffFields(prev, next);
+      if (prev && !Object.keys(d).length) continue;
+      const p = actor.controller.position;
+      const dist = Math.hypot(p[0] - mp[0], p[2] - mp[2]);
+      const stale = this.tickNo - (view.sentTick.get(actor.id) ?? this.tickNo - 4);
+      candidates.push({ actor, d, next, size: JSON.stringify(d).length + 4, score: (actor === me ? 1e9 : 0) + 1000 / (1 + dist) + stale * 20 });
+    }
+    const x = [];
+    for (const id of view.actors.keys()) {
+      if (!seen.has(id)) { x.push(id); view.actors.delete(id); view.sentTick.delete(id); }
+    }
+    let room = Infinity;
+    if (this.bytesPerTick !== Infinity) {
+      room = Math.max(this.bytesPerTick * 0.3, this.bytesPerTick - JSON.stringify(snap).length);
+      candidates.sort((u, v) => v.score - u.score);
+    }
+    const a = [];
+    let used = 0, deferred = 0;
+    for (const c of candidates) {
+      if (c.actor !== me && used + c.size > room) { deferred++; continue; }   // late, not lost: the view stays as it was
+      used += c.size;
+      c.d.i = c.actor.id;
+      a.push(c.d);
+      view.actors.set(c.actor.id, c.next);
+      view.sentTick.set(c.actor.id, this.tickNo);
+    }
+    view.deferred = deferred;
+    if (a.length) snap.a = a;
+    if (x.length) snap.x = x;
   }
 
   ownBlock(player, view) {

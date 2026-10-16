@@ -19,6 +19,7 @@ import crypto from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { Instance } from './instance.mjs';
 import { ClientView } from './replication.mjs';
+import { Emitter } from '../engine/events.js';
 import { COMMAND_HZ } from '../engine/protocol.js';
 
 export class InstanceManager {
@@ -37,8 +38,18 @@ export class InstanceManager {
     this.counter = 0;
     this.lingering = new Map();     // resume token -> player whose connection dropped
     this.chain = Promise.resolve();
+    this.events = new Emitter();     // player-joined(player, instance), player-left(player, instance)
+    this.economy = null;             // set by the server: the audited economy scripts reach through world.context
     this.tickCount = 0;
     this.stats = { tickMsLast: 0, tickMsMax: 0, tickMsAvg: 0 };
+  }
+
+  /** The player currently in the world as this character (connected or lingering), or null. */
+  playerForCharacter(characterId) {
+    for (const inst of this.instances.values()) {
+      for (const p of inst.players) if (p.character && p.character.id === characterId) return p;
+    }
+    return null;
   }
 
   nowMs() { return Date.now() - this.startedAt; }
@@ -103,12 +114,15 @@ export class InstanceManager {
 
   /**
    * Put a session's player into the right copy of a map and send them the welcome.
-   * params: { mapPath, landmark, carry, config, partyId }
+   * params: { mapPath, landmark, carry, config, partyId, feet, yaw, character }
    */
   join(session, params) {
     return this.serial(async () => {
       const inst = await this.instanceFor(params.mapPath, { playerId: session.playerId, partyId: params.partyId });
-      const player = inst.addPlayer({ session, id: session.playerId, config: params.config, landmark: params.landmark, carry: params.carry });
+      const player = inst.addPlayer({
+        session, id: session.playerId, config: params.config, landmark: params.landmark, carry: params.carry,
+        feet: params.feet, yaw: params.yaw, character: params.character,
+      });
       player.resumeToken = crypto.randomBytes(16).toString('hex');
       session.player = player;
       session.instance = inst;
@@ -141,7 +155,7 @@ export class InstanceManager {
         const inst = await this.instanceFor(mapPath, { playerId: player.id, partyId });
         from.removePlayer(player);
         if (session) session.send({ t: 'travel', map: mapPath, instance: inst.id, landmark: landmark || null });
-        const next = inst.addPlayer({ session, id: player.id, config, landmark, carry });
+        const next = inst.addPlayer({ session, id: player.id, config, landmark, carry, character: player.character });
         next.resumeToken = player.resumeToken;
         next.partyId = partyId;
         next.config = config;
@@ -178,12 +192,24 @@ export class InstanceManager {
     this.lingering.set(player.resumeToken, player);
   }
 
+  /** A logged-in character reconnecting without a token: if they are still lingering in the world, reattach. */
+  resumeCharacter(session, characterId) {
+    const player = this.playerForCharacter(characterId);
+    if (!player || player.disconnectedAt === null) return null;
+    return this.reattach(session, player, player.resumeToken);
+  }
+
   /** A hello carrying a resume token: reattach the new connection to the player who was dropped, if still here. */
   resume(session, token) {
     const player = this.lingering.get(token);
     if (!player || player.disconnectedAt === null || !player.instance || player.instance.closed) return null;
+    return this.reattach(session, player, token);
+  }
+
+  reattach(session, player, token) {
     this.lingering.delete(token);
     player.session = session;
+    session.playerId = player.id;
     player.disconnectedAt = null;
     player.view = new ClientView();      // the client has forgotten everything: send it all again
     session.player = player;
