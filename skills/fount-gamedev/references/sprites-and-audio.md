@@ -139,10 +139,37 @@ registerFountText();                      // once
 
 Changing the `text` attribute re-renders it. `pixelText('GOLD 50', { scale: 2 })` returns a `<canvas>` for building DOM from code. This is a crisp-pixel canvas, not a webfont: a generated font file would be exactly the kind of opaque binary this engine avoids, and for pixel-art labels the picture is identical. It is not selectable, and a real `<input>` still needs a CSS font.
 
+## Music
+
+Songs are JSON in the game config, in the same spirit as sprites and sounds: a tracker-style sequencer synthesises them with oscillators, so a soundtrack ships as text.
+
+```json
+"music": { "songs": { "town": {
+  "bpm": 96, "stepsPerBeat": 4, "loop": true,
+  "channels": [
+    { "wave": "triangle", "volume": 0.35,
+      "pattern": ["C3","-","-","-","G2","-","-","-","A2","-","-","-","F2","-","-","-"] },
+    { "wave": "square", "volume": 0.18, "duty": 0.25,
+      "patterns": { "a": ["E4",".","G4",".","C5","-",".","."], "b": ["D4",".","F4",".","B4","-",".","."] },
+      "order": ["a","a","b","a"] }
+  ]
+} } }
+```
+
+A step is a note (`C4`, `F#3`, `Bb2`) which sounds and holds, `-` to keep holding it, or `.` for a rest. A channel is one flat `pattern`, or named `patterns` strung together by `order`; channels of different lengths loop independently. `wave` is `sine`, `square`, `sawtooth` or `triangle`; a square with `duty` other than 0.5 is a pulse wave.
+
+`game.music.play('town')`, `game.music.play('battle', { fade: 1.5 })` (the old song fades out as the new one fades in), `game.music.stop({ fade: 2 })`, `game.music.volume = 0.5`, `game.music.define(name, song)`. A bad song is reported with every problem at once (`validateSong`). Audio starts after the first click or key press, as browsers require. `engine/music.js` has no audio in it (`Sequencer` just says which notes start when), which is how it is tested in Node.
+
+## Recolouring and layering sprites
+
+`spriteLibrary.variant(name, swap)` returns the name of a recoloured copy (made once, cached): `swap` maps a palette character to a colour (`{ r: '#2040c0' }`) or an old colour to a new one (`{ '#aa0000': '#0000cc' }`). `spriteInstance.setPalette(swap)` recolours in place and `setPalette(null)` restores it. On an actor, `publicData.palette` and `publicData.layers` (a paper-doll stack of `{ sprite, palette, order }`) are applied by the engine on every client; see `rpg.md`.
+
+Open `sprites.html` in a browser (or `?config=<game config>`) for a sheet of every sprite with all its animations and directions, an animated preview, a filter box and a palette-swap box.
+
 ## Sound presets
 
 All sound is synthesised from named presets; `"sound": "name"` in an ability, effect or entity plays one. An unknown name warns once instead of staying silent.
 
 `shoot shotgun impact hurt die step land jump explosion pickup door button ragdoll` (first-person set) and, for RPGs: `swing hit crit cast heal portal click enemyhurt enemydie error levelup`.
 
-The engine plays `swing` on melee, `hit` / `crit` / `hurt` on damage, `heal`, `enemydie` / `die` on death, `error` when an ability fails for a reason the player should hear (not for cooldown), and `portal` on level travel. Music sequencing is not built yet.
+The engine plays `swing` on melee, `hit` / `crit` / `hurt` on damage, `heal`, `enemydie` / `die` on death, `error` when an ability fails for a reason the player should hear (not for cooldown), and `portal` on level travel. Music is the sequencer above.

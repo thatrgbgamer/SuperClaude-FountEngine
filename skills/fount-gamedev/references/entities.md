@@ -256,6 +256,8 @@ A monster or townsperson: an actor with a sprite and AI.
 | `corpseTime` | `6` | Seconds the body lingers |
 | `respawn` | `0` | Seconds after the corpse clears before it returns at full health; `0` is never |
 | `ai` | on | An object of AI settings; `false` or `"passive": true` for none. The AI keys (`aggroRadius`, `attackRange`, `attack`, ...) may also be written flat on the entity |
+| `scales` | `false` | Online: health and damage follow the number of living players (the map's `instance.scaling` table) |
+| `resetOnWipe` | `false` | Online: returns to full health with a clear threat table when every player in the instance has died |
 
 Outputs: `OnDamaged` (param is the damage), `OnDeath`, `OnAggro`, `OnLeash`. Inputs: `Kill`, `Heal` (param amount), `SetFaction`, `Aggro`, `Enable` / `Disable` (switch the AI on and off).
 
@@ -275,6 +277,19 @@ A volume that hurts whatever stands in it, and can rise and fall: lava, acid, a 
 | `particles`, `particleRate` | | A preset thrown off the surface, e.g. `ember` |
 
 It is not solid: actors walk into it and take damage. Anything is hurt whose feet are below its surface and whose body reaches above its bottom, so a rising level changes which paths are safe. Outputs: `OnTouch`, `OnRaised`, `OnLowered`. Inputs: `Raise`, `Lower`, `Toggle`, `Start`, `Stop`. Monsters do not path around it.
+
+### `func_water`
+
+A volume of water whose surface follows the tide and slows whatever wades in it. The server owns the level and the slowdown; clients draw the surface where the server says it is.
+
+| Keyvalue | Default | Meaning |
+|---|---|---|
+| `min`, `max` | | The volume; the surface sits at `max[1]` at mid tide |
+| `tide` | none | `{ "amplitude": 0.4, "period": 240, "phase": 0 }`; no tide keeps the water still |
+| `slow` | `0.6` | Speed multiplier for anything wading |
+| `material` | `water` | The surface material; give it `"scroll": [0.05, 0.02]` to make it flow |
+
+Outputs: `OnEnter`, `OnExit`.
 
 ### `trigger_changelevel`
 

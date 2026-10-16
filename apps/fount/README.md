@@ -244,6 +244,21 @@ Your client still traces its own shots, because that is what makes hits feel
 immediate on a high-ping connection — but it only reports *who* it hit, and the
 server decides whether that was possible and what it costs. See below.
 
+
+## Online top-down games
+
+Top-down / RPG games run on a different server, `server/mmo.mjs`, where the server simulates everything and clients send only intents (the first-person server above is unchanged):
+
+```sh
+./serve.sh --online                                        # guests, nothing saved: for development
+./serve.sh --online --auth required --admin-token <16+ chars>
+node server/mmo.mjs --help                                 # every option, each with a FOUNT_* variable
+```
+
+It brings accounts and saved characters (sqlite, file or your own store), instanced maps with portals, per-client interest management and a bandwidth budget, parties, chat and emotes, threat and PvP, an admin console and HTTP admin API, `/metrics`, scheduled backups and a graceful shutdown. A game's server half is ordinary `defineEntity` code plus a few hooks. See `skills/fount-gamedev/references/multiplayer.md` and `persistence.md`; `server/loadtest.mjs --bots 50` measures a server under load; `tests/e2e.test.mjs` is a headless two-player walk-through. Moving an existing game onto it: `skills/fount-gamedev/references/online-migration.md`.
+
+Run the engine's tests from `apps/fount` with `node --no-warnings tests/<name>.test.mjs` (the flag silences Node's SQLite notice).
+
 ## Anticheat
 
 The server loads the map and runs the engine's own collision code, so it checks

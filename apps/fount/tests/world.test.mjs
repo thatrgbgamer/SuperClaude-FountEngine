@@ -204,7 +204,7 @@ test('water follows the tide on the server, replicates its level, and slows what
   const inst = server.manager.instances.values().next().value;
   const water = inst.world.entities.find((e) => e.classname === 'func_water');
   const player = inst.players[0];
-  const base = player.actor.speed;
+  const base = player.actor.baseSpeed;
   player.actor.controller.position[0] = -10; player.actor.controller.position[2] = 0;
   await waitFor(() => player.actor.speed < base, 2000, 'slowed in the water');
   assert(Math.abs(player.actor.speed - base * 0.5) < 1e-9, `half speed (${player.actor.speed})`);

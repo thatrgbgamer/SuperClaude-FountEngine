@@ -20,6 +20,8 @@ The engine provides the **mechanisms**: actors, damage, abilities, statuses, AI,
 - [Events](#events)
 - [Writing your own HUD](#writing-your-own-hud)
 - [Input and rebinding](#input-and-rebinding)
+- [Threat, scaling, PvP and fighting in groups](#threat-scaling-pvp-and-fighting-in-groups)
+- [Looks and feel](#looks-and-feel)
 - [Testing without a browser](#testing-without-a-browser)
 - [Not built yet](#not-built-yet)
 
@@ -298,10 +300,31 @@ Game code asks for actions, never keys. `game.input` has `isDown(action)`, `pres
 
 Actions: `forward back left right jump fire primary secondary interact inventory chat camLeft camRight hotbar1`..`hotbar10`. Mouse buttons are `Mouse0` (left), `Mouse1`, `Mouse2` (right). A game invents more by binding any name and calling `isDown`/`pressed` on it.
 
+## Threat, scaling, PvP and fighting in groups
+
+These matter when several players share a fight; the full server side is in `multiplayer.md`.
+
+- **Threat.** Every monster with AI keeps `ai.threat` (actor to number). Damage adds its final amount times the ability's `threat` multiplier, healing a monster's enemy adds half the heal, and the monster fights whoever has the most, swapping only for 10% more in melee or 30% more at range. The effect `{ "type": "threat", "amount": 200, "mult": 1, "taunt": true }` adds, scales or takes the top (`self: true` applies to the caster). The table clears when the monster goes idle. With one player this changes nothing.
+- **Friendly targets.** `"targeting": "target", "friendly": true` works on any friendly actor, including other players; `"area"` effects take `"targets": "ally"` (`"includeSource": true` to include the caster).
+- **Scaling layers.** `actor.setScale('key', { hp, damageDealt, damageTaken, speed })` multiplies by a named layer and `setScale('key', null)` removes it. Health keeps its fraction; `snapshot()` records unscaled values. Wading in `func_water`, a boss scaled for a bigger group and a high-level player sidekicked down all use it.
+- **Player versus player.** Two players are friends unless the map's PvP mode (`off`, `free`, `flagged`, `teams`) or a duel says otherwise; set `system.pvp = new Pvp({ mode })` (`engine/pvp.js`) to use it offline. See `multiplayer.md`.
+
+## Looks and feel
+
+- **Camera cut-away.** In top-down mode, scenery between the camera and the player is dithered away within a radius of the sight line, so a wall never hides the player. On by default; `"camera": { "occlusionFade": false }` turns it off and a number sets the radius in metres (2.2). Floors at the player's own height are never cut. For any other focus point, `renderer.setFocus(pos, radius)`.
+- **UV-scrolling materials.** A material may carry `"scroll": [0.05, 0.02]` (uv units per second): flowing water, conveyor belts, drifting clouds.
+- **Decals.** `game.decals.add('splat', [x, y, z], { size: 1.2, life: 30, fade: 5, tint })` lays a sprite flat on the ground (scorch marks, blood, footprints). It pixelates, lights and fogs with the scene. At most 300 live; the oldest are replaced.
+- **Palette swaps.** `spriteLibrary.variant(name, { r: '#2040c0' })` (a palette character) or `{ '#aa0000': '#0000cc' }` (an old colour) makes a cached recoloured sprite and returns its name; `spriteInstance.setPalette(swap)` recolours in place, keeping the animation. Putting `publicData.palette = swap` on an actor makes every client that sees it draw it recoloured.
+- **Paper dolls.** `actor.publicData.layers = [{ sprite: 'hair', palette: {...} }, { sprite: 'cloak', order: 'under' }]` stacks sprites that follow the body's animation and facing, so gear shows without a sprite per combination. Layers only need the same animation names and frame counts as the body.
+- **World clock.** `game.clock.sample()` (hour, daylight, season, tide) from one number that is shared online; `game.clock.lighting(env)` tints an environment for the hour. `func_water` follows the tide. See `multiplayer.md`.
+- **Name plates and bubbles.** `game.nameplates` draws names, health bars and chat bubbles over actors online.
+- **Music.** `game.music.play('town', { fade: 1.5 })` plays a tracker-style song defined in the game config; see `sprites-and-audio.md`.
+- **Sprite-sheet preview.** Open `sprites.html` (`?config=game/game.json`) to see every sprite, animation and direction, animated, with a palette-swap box.
+
 ## Testing without a browser
 
 Actors, combat, abilities, statuses, AI and navigation import no DOM or GL, so they run in plain Node. A throwaway test builds a collision world from brushes with `buildMap({ name, brushes }).collision`, creates an `ActorSystem({ collision })`, and calls `system.update(1/120)` in a loop. `apps/fount/tests/rpg.test.mjs` is a worked example covering every system on this page. Run with `node apps/fount/tests/rpg.test.mjs`.
 
 ## Not built yet
 
-Planned, in this order, and deliberately absent so far: sprite paper-doll layers, camera occlusion fading (`hideWhenOccluding`), decals, UV-scrolling materials, a tracker-style music sequencer, world-space nameplates and health bars, UI panel kits, server-authoritative actors, multiple map instances, parties, persistence, a sprite-sheet preview page, palette preview in the editor, water volumes, mounts. A map that needs one of these today should do it with a `defineEntity` module and the events above.
+Online play (server-authoritative actors, instances, parties, persistence) is in `multiplayer.md` and `persistence.md`. Still absent: UI panel kits, palette preview in the editor, mounts, and a `hideWhenOccluding` flag for individual brushes (the camera cut-away is global). A map that needs one of these today should do it with a `defineEntity` module and the events above.

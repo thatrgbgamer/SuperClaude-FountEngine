@@ -75,6 +75,8 @@ Players type `connect` in the console; the terminal running the server is the
 admin console (`status`, `kick`, `ban`, `map`, `say`, `anticheat`). The engine
 README's multiplayer section covers tunnels, reverse proxies and a systemd unit.
 
+That server (`server/server.mjs`) is for first-person games. A top-down / RPG game online uses `./serve.sh --online` (`server/mmo.mjs`): server-authoritative actors, accounts and saved characters, instances, parties and chat, with an admin console and HTTP admin API. Read `references/multiplayer.md` and `references/persistence.md` for it. Verify online behaviour headlessly with the Node bots in `apps/fount/tests/` (`e2e.test.mjs` is the worked example), not by clicking through two browser windows.
+
 Server-side validation is on by default (`--anticheat off|lenient|normal|strict`).
 If a game's own scripts launch players faster than ordinary movement — jump pads,
 cannons — raise the speed cap or run `lenient`, or those launches will trickle
@@ -115,7 +117,10 @@ Read the reference file for the job at hand rather than guessing at schema:
 - **`references/entities.md`** — every built-in classname, its keyvalues, and its inputs/outputs, plus how the IO system routes events.
 - **`references/custom-behaviors.md`** — `defineEntity`, the engine services available to behaviours, and two worked examples.
 - **`references/rpg.md`** — top-down / RPG games: the camera, the pixel-art render pipeline, actors, damage, abilities, statuses, monster AI, level transitions, events, and how to write a game's own HUD.
-- **`references/sprites-and-audio.md`** — the text sprite format, particles, the bitmap font, `<fount-text>`, and every sound preset.
+- **`references/sprites-and-audio.md`** — the text sprite format, particles, the bitmap font, `<fount-text>`, every sound preset, the tracker-style music sequencer, palette swaps and the sprite-sheet preview page.
+- **`references/multiplayer.md`** — online top-down games on `server/mmo.mjs`: the server-authoritative model, `defineEntity` server/client halves, the `world.context` API, hooks, instances and portals, interest management, parties, chat, threat, PvP, the world clock, and running a server (admin console and API, metrics, backups, load test).
+- **`references/online-migration.md`** — moving a working single-player game onto the online server: the server/client entity split, the `world.context` changes, what a character save contains, hooks, and a checklist.
+- **`references/persistence.md`** — accounts, characters, the HTTP API, stores (sqlite, file, custom), the save record and `actor.snapshot()` interface, versioning, the gold economy and ledger, backups.
 
 ## Top-down and RPG games
 

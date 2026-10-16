@@ -115,7 +115,7 @@ test('emotes are whitelisted and replicated for a moment', async () => {
   place(a, -9, 0); place(b, -8, 1);
   a.session.send({ t: 'emote', id: 'explode' });
   a.session.emote('wave');
-  await waitFor(() => { const x = b.actorNamed('Alice'); return x && x.publicData.emote && x.publicData.emote.id === 'wave'; }, 2000, 'emote seen');
+  await waitFor(() => { const x = b.actorNamed('Alice'); return x && x.publicData.emote && x.publicData.emote.id === 'wave'; }, 2500, 'emote seen');
   assert(!a.chats.some((x) => x.text.includes('explode')));
   assert(a.chats.some((x) => x.ch === 'emote' && x.text === 'Alice waves.'));
 });

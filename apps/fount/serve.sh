@@ -26,4 +26,9 @@ if [ "$MAJOR" -lt 18 ]; then
   exit 1
 fi
 
+if [ "${1:-}" = "--online" ]; then
+  shift
+  exec node --no-warnings "$DIR/server/mmo.mjs" "$@"
+fi
+
 exec node "$DIR/server/server.mjs" "$@"
