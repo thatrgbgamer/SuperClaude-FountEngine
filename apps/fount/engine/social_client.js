@@ -107,3 +107,20 @@ export class PartyClient {
   promote(name) { return this.op('promote', name); }
   disband() { return this.op('disband'); }
 }
+
+/** Player-versus-player controls: the PvP flag and duels. Events: 'duel-invite' ({ from }), 'duel-start' ({ vs }). */
+export class PvpClient {
+  constructor(game) { this.game = game; this.invite = null; this.opponent = null; }
+  get session() { return this.game.online ? this.game.online.session : null; }
+  op(op, name = '') { const s = this.session; if (s) s.send({ t: 'pvp', op, name: String(name) }); return !!s; }
+  flag() { return this.op('flag'); }
+  unflag() { return this.op('unflag'); }
+  duel(name) { return this.op('duel', name); }
+  acceptDuel() { this.invite = null; return this.op('duel-accept'); }
+  declineDuel() { this.invite = null; return this.op('duel-decline'); }
+  yield() { return this.op('yield'); }
+  receive(msg) {
+    if (msg.ev === 'duel-invite') { this.invite = { from: String(msg.from || '') }; this.game.events.emit('duel-invite', this.invite); }
+    else if (msg.ev === 'duel-start') { this.opponent = String(msg.vs || ''); this.invite = null; this.game.events.emit('duel-start', { vs: this.opponent }); }
+  }
+}

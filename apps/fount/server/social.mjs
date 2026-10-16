@@ -15,7 +15,7 @@
 
 import { parseChat } from '../engine/protocol.js';
 
-const DEFAULT_RATES = { say: [6, 6000], party: [8, 6000], guild: [8, 6000], whisper: [8, 6000], world: [3, 30000], emote: [4, 6000] };
+const DEFAULT_RATES = { say: [6, 6000], party: [8, 6000], guild: [8, 6000], whisper: [8, 6000], world: [3, 30000], report: [3, 60000], duel: [3, 30000], invite: [6, 30000], emote: [4, 6000] };
 const EMOTES = { wave: 'waves.', cheer: 'cheers!', laugh: 'laughs.', cry: 'cries.', dance: 'dances.', bow: 'bows.', point: 'points ahead.', sit: 'sits down.' };
 const BUBBLE_MS = 5000, EMOTE_MS = 3000, INVITE_MS = 60000;
 const IGNORE_KEY = 'socialIgnored';
@@ -56,8 +56,13 @@ export class Social {
   byName(name) {
     const want = String(name || '').toLowerCase();
     if (!want) return null;
-    for (const p of this.allPlayers()) if (p.actor.name.toLowerCase() === want) return p;
-    return null;
+    let ghost = null;
+    for (const p of this.allPlayers()) {
+      if (p.actor.name.toLowerCase() !== want) continue;
+      if (p.disconnectedAt === null) return p;      // someone whose connection dropped is only a fallback
+      ghost = ghost || p;
+    }
+    return ghost;
   }
 
   // ---- limits ------------------------------------------------------------------------
@@ -91,6 +96,7 @@ export class Social {
       case 'party': return this.partyOp(player, msg);
       case 'social': return this.socialOp(player, msg);
       case 'emote': return this.emote(player, msg);
+      case 'pvp': return this.pvpOp(player, msg);
     }
     return false;
   }
@@ -195,6 +201,37 @@ export class Social {
       if (this.store) this.store.addAudit({ actor: `player:${player.actor.name}`, action: 'chat-report', detail: report }).catch(() => {});
       this.gameData.callHook('chatReport', report);
       this.system(player, 'Thank you. Your report was sent to the moderators.');
+    }
+  }
+
+  // ---- PvP flag and duels --------------------------------------------------------------
+
+  pvpOp(player, msg) {
+    const enc = player.instance.encounters;
+    const op = msg.op;
+    const A = player.actor;
+    if (op === 'flag') {
+      if (!enc.setFlag(player, true)) return this.system(player, 'Player combat is not optional here.');
+      A._pvpOffAt = 0;
+    } else if (op === 'unflag') {
+      if (enc.mode !== 'flagged' || !enc.pvp.flagged(A)) return;
+      A._pvpOffAt = Date.now() + 10000;                 // a flag does not drop mid-fight
+      this.system(player, 'Your PvP flag will drop in 10 seconds.');
+    } else if (op === 'duel') {
+      const target = typeof msg.name === 'string' ? this.byName(msg.name) : null;
+      if (!target || target.instance !== player.instance) return this.system(player, `${msg.name || 'Nobody'} is not here.`);
+      if (!this.allow(player, 'duel')) return this.system(player, 'You are challenging too fast.');
+      const r = enc.requestDuel(player, target);
+      if (r === 'sent') { target.send({ t: 'pvp', ev: 'duel-invite', from: A.name }); this.system(player, `Challenged ${target.actor.name}.`); }
+      else this.system(player, { busy: 'A duel is already under way.', dead: 'Not while dead.', far: 'They are too far away.' }[r] || 'Cannot duel.');
+    } else if (op === 'duel-accept') {
+      const from = enc.acceptDuel(player);
+      if (!from) return this.system(player, 'There is no challenge to accept.');
+      for (const p of [player, from]) p.send({ t: 'pvp', ev: 'duel-start', vs: p === player ? from.actor.name : A.name });
+    } else if (op === 'duel-decline') {
+      enc.duelInvites.delete(player.id);
+    } else if (op === 'yield') {
+      enc.endDuel(A, 'yield');
     }
   }
 

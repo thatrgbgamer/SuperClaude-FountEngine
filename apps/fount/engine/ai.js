@@ -55,6 +55,8 @@ export class AIController {
     this.stuckCount = 0;
     this.noticed = false;
     this.enabled = true;        // a map can switch a monster's brain off (it then just stands there)
+    this.threat = new Map();    // actor -> how much it has earned this monster's attention
+    this.threatTimer = 0;
     this.alerted = false;       // told about a target by an ally rather than seeing it, so it has to keep believing in it
     this.abilityId = this.cfg.attackAbility;
     actor.ai = this;
@@ -87,7 +89,7 @@ export class AIController {
     const prev = this.state;
     this.state = next;
     this.timer = 0;
-    if (next === 'idle') this.alerted = false;
+    if (next === 'idle') { this.alerted = false; this.threat.clear(); }
     this.path = null;
     this.stuckCount = 0;
     this.actor.emit('ai-state', this.actor, next, prev);
@@ -118,6 +120,43 @@ export class AIController {
       best = o; bestD = d;
     }
     return best;
+  }
+
+  /** Add to (or with `mult`, scale) an actor's threat. Only hostile sources count. */
+  addThreat(source, amount = 0, mult = 1) {
+    if (!source || source === this.actor || this.actor.dead || !this.actor.isHostile(source)) return;
+    const now = this.threat.get(source) || 0;
+    this.threat.set(source, Math.max(0, now * mult + amount));
+  }
+
+  /** Make `source` the top of the table (a taunt). */
+  taunt(source) {
+    if (!source || this.actor.dead) return;
+    let top = 0;
+    for (const v of this.threat.values()) top = Math.max(top, v);
+    this.threat.set(source, top + 1);
+    if (!source.dead) { this.target = source; this.path = null; }
+    this.threatTimer = 0.4;
+  }
+
+  /**
+   * Who to fight: the most threatening living hostile in reach. The current target is only
+   * dropped for someone with clearly more (10% more in melee, 30% more at range), so a
+   * monster does not flick between two players who are trading the lead.
+   */
+  chooseTarget() {
+    let best = null, bestV = 0;
+    for (const [who, v] of this.threat) {
+      if (who.dead || who.removed || !this.actor.isHostile(who) || this.gap(who) > this.cfg.loseRadius) continue;
+      if (v > bestV) { best = who; bestV = v; }
+    }
+    if (!best) return;
+    const cur = this.target;
+    if (cur && cur !== best && !cur.dead && this.threat.has(cur)) {
+      const margin = this.gap(cur) <= this.cfg.attackRange ? 1.1 : 1.3;
+      if (bestV <= this.threat.get(cur) * margin) return;
+    }
+    if (best !== cur) { this.target = best; this.path = null; }
   }
 
   /** Someone nearby spotted trouble: skip the wondering and notice it too. */
@@ -212,6 +251,11 @@ export class AIController {
       this.noticed = true;
       this.alertAllies(this.target);
       this.setState('chase');
+    }
+
+    if ((this.state === 'chase' || this.state === 'attack') && this.threat.size) {
+      this.threatTimer -= dt;
+      if (this.threatTimer <= 0) { this.threatTimer = 0.4; this.chooseTarget(); }
     }
 
     switch (this.state) {
@@ -336,4 +380,21 @@ export class AIController {
     }
     this.moveTo(this.home, 1);
   }
+}
+
+/**
+ * Threat from combat events: damage dealt to a monster, and healing a monster's enemies (at half weight,
+ * to every monster already fighting the one healed). An ability can scale its own with `threat: 2`.
+ */
+export function wireThreat(system) {
+  system.bus.on('damage', (ev) => {
+    const t = ev.target;
+    if (t && t.ai && ev.source && ev.final > 0) t.ai.addThreat(ev.source, ev.final * (ev.threat ?? 1));
+  });
+  system.bus.on('heal', (ev) => {
+    if (!ev.source || !(ev.amount > 0)) return;
+    for (const a of system.actors) {
+      if (a.ai && !a.dead && a.ai.threat.has(ev.target)) a.ai.addThreat(ev.source, ev.amount * 0.5);
+    }
+  });
 }

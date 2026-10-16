@@ -12,6 +12,9 @@
 // (The older server.mjs serves first-person games and is unchanged.)
 
 import http from 'node:http';
+import crypto from 'node:crypto';
+import readline from 'node:readline';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -25,6 +28,8 @@ import { CharacterService, Persistence, CharacterError } from './characters.mjs'
 import { createApi } from './api.mjs';
 import { Economy } from '../engine/economy.js';
 import { Social } from './social.mjs';
+import { Admin } from './admin.mjs';
+import { makeBackup, restoreBackup } from './backup.mjs';
 import { LIMITS, COMMAND_HZ, PROTOCOL_VERSION, parseHello, parseCommand, parseAbility, parseInteract, parsePing, reject } from '../engine/protocol.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -50,6 +55,13 @@ export const DEFAULTS = {
   trustProxy: false,            // honour X-Forwarded-For (only behind a proxy you control)
   corsOrigin: null,             // origin(s) allowed to call /api from another site
   apiRateLimit: 120,            // /api requests per address per minute
+  // Operating the server.
+  adminToken: null,             // at least 16 characters turns on POST /admin; also guards /metrics. Never put it in a client.
+  console: false,               // read admin commands from stdin (the CLI turns this on when run from a terminal)
+  backupDir: null,              // default <root>/data/backups
+  backupIntervalMinutes: 60,    // 0 turns scheduled backups off
+  backupKeep: 14,
+  logJson: false,               // one JSON object per log line, for log shippers
 };
 
 const MAX_MESSAGES_PER_SECOND = 240;
@@ -60,7 +72,12 @@ const MAX_MESSAGES_PER_SECOND = 240;
  */
 export async function startServer(userOptions = {}) {
   const options = { ...DEFAULTS, ...userOptions };
-  const log = options.quiet ? () => {} : (text) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${text}`);
+  const log = options.quiet ? () => {}
+    : options.logJson ? (text, fields) => console.log(JSON.stringify({ ts: new Date().toISOString(), level: 'info', msg: text, ...fields }))
+    : (text) => console.log(`[${new Date().toISOString().slice(11, 19)}] ${text}`);
+  if (options.adminToken && String(options.adminToken).length < 16) throw new Error('adminToken must be at least 16 characters.');
+  const stats = { bytesOut: 0, msgsIn: 0, kicks: 0, joins: 0, rejected: 0 };
+  let admin = null;
 
   const gameData = new GameData(options.root, log);
   await gameData.loadConfig(options.config);
@@ -100,6 +117,20 @@ export async function startServer(userOptions = {}) {
   const social = new Social({ manager, gameData, store, log });
   manager.social = social;
   social.start();
+  const dataDir = path.join(options.root, 'data');
+  const backupDir = options.backupDir ? path.resolve(options.backupDir) : path.join(dataDir, 'backups');
+  admin = new Admin({
+    manager, social, auth, store, persistence, gameData, log, backupDir, backupKeep: options.backupKeep,
+    statusFn: () => status(),
+    requestExit: () => { if (options.onExit) options.onExit(); else handle.close(); },
+  });
+  let backupTimer = null;
+  if (store && options.backupIntervalMinutes > 0 && store.info().kind !== 'memory') {
+    backupTimer = setInterval(() => {
+      makeBackup(store, backupDir, options.backupKeep).then((f) => log(`backup written: ${f}`)).catch((err) => log(`backup failed: ${err.message}`));
+    }, options.backupIntervalMinutes * 60000);
+    backupTimer.unref?.();
+  }
   const loggingIn = new Set();
 
   const sessions = new Set();
@@ -107,7 +138,71 @@ export async function startServer(userOptions = {}) {
   const startedAt = Date.now();
   const serveFiles = options.serveFiles ? createStaticHandler(options.root) : (req, res) => res.writeHead(404).end();
 
+  // ---- operations: /metrics and /admin ---------------------------------------------
+
+  const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
+  const isLocal = (req) => ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+  const hasToken = (req) => {
+    const h = String(req.headers.authorization || '');
+    return !!options.adminToken && h.startsWith('Bearer ') && crypto.timingSafeEqual(sha(h.slice(7).trim()), sha(options.adminToken));
+  };
+  const adminHits = new Map();
+  function metricsText() {
+    const st = status();
+    const lines = [];
+    const g = (name, help, value, labels = '') => { lines.push(`# HELP ${name} ${help}`, `# TYPE ${name} gauge`, `${name}${labels} ${value}`); };
+    g('fount_players', 'Players currently in the world', st.players);
+    g('fount_instances', 'Running map instances', st.instances.length);
+    g('fount_uptime_seconds', 'Seconds since the server started', st.uptimeSeconds);
+    g('fount_tick_ms', 'Time to run one world tick, milliseconds', st.tick.lastMs, '{stat="last"}');
+    lines.push(`fount_tick_ms{stat="avg"} ${st.tick.avgMs}`, `fount_tick_ms{stat="max"} ${st.tick.maxMs}`);
+    g('fount_tick_budget_used', 'Fraction of the tick budget (33 ms) used by the average tick', Math.round((st.tick.avgMs / (1000 / COMMAND_HZ)) * 1000) / 1000);
+    g('fount_parties', 'Active parties', social.parties.size);
+    lines.push('# TYPE fount_bytes_sent_total counter', `fount_bytes_sent_total ${stats.bytesOut}`);
+    lines.push('# TYPE fount_messages_received_total counter', `fount_messages_received_total ${stats.msgsIn}`);
+    lines.push('# TYPE fount_joins_total counter', `fount_joins_total ${stats.joins}`);
+    lines.push('# TYPE fount_kicks_total counter', `fount_kicks_total ${stats.kicks}`);
+    if (persistence) {
+      lines.push('# TYPE fount_saves_total counter', `fount_saves_total ${persistence.saves}`);
+      lines.push('# TYPE fount_save_failures_total counter', `fount_save_failures_total ${persistence.failures}`);
+    }
+    lines.push('# TYPE fount_instance_players gauge');
+    for (const i of st.instances) lines.push(`fount_instance_players{instance="${i.id}",map="${i.map}"} ${i.players}`);
+    lines.push('# TYPE fount_instance_tick_ms gauge');
+    for (const i of st.instances) lines.push(`fount_instance_tick_ms{instance="${i.id}"} ${i.tickMs}`);
+    return lines.join('\n') + '\n';
+  }
+
+  async function ops(req, res) {
+    if (req.url === '/metrics') {
+      if (!(isLocal(req) || hasToken(req))) { res.writeHead(403).end('metrics are for localhost or the admin token'); return true; }
+      res.writeHead(200, { 'Content-Type': 'text/plain; version=0.0.4' });
+      res.end(metricsText());
+      return true;
+    }
+    if (req.url === '/admin' && req.method === 'POST') {
+      const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); };
+      if (!options.adminToken) return send(404, { error: 'The admin API is off.' }), true;
+      const addr = req.socket.remoteAddress || '';
+      const now = Date.now();
+      const hit = adminHits.get(addr) || { t: now, n: 0 };
+      if (now - hit.t > 60000) { hit.t = now; hit.n = 0; }
+      hit.n++; adminHits.set(addr, hit);
+      if (hit.n > 60) return send(429, { error: 'Slow down.' }), true;
+      if (!hasToken(req)) { log(`admin: refused a request from ${addr}`); return send(401, { error: 'Bad token.' }), true; }
+      let body = '';
+      for await (const chunk of req) { body += chunk; if (body.length > 8192) return send(413, { error: 'Too large.' }), true; }
+      let msg;
+      try { msg = JSON.parse(body || '{}'); } catch { return send(400, { error: 'Send JSON.' }), true; }
+      const line = typeof msg.line === 'string' ? msg.line : [msg.command, ...(Array.isArray(msg.args) ? msg.args.map((a) => JSON.stringify(String(a))) : [])].join(' ');
+      send(200, await admin.run(line, `http:${addr}`));
+      return true;
+    }
+    return false;
+  }
+
   const httpServer = http.createServer(async (req, res) => {
+    if (await ops(req, res)) return;
     if (api && await api(req, res)) return;
     if (req.url === '/api/status') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -135,8 +230,13 @@ export async function startServer(userOptions = {}) {
       playerId: `p${nextPlayer++}`,
       connection, player: null, instance: null, hello: null, joining: false,
       msgWindow: 0, msgCount: 0, intentWindow: 0, intentCount: 0, violations: 0,
-      send(msg) { connection.send(typeof msg === 'string' ? msg : JSON.stringify(msg)); },
-      kick(reason, code = 4001) { this.send({ t: 'kick', reason }); connection.close(code, reason); },
+      send(msg) {
+        const text = typeof msg === 'string' ? msg : JSON.stringify(msg);
+        connection.send(text);
+        stats.bytesOut += text.length;
+        return text.length;
+      },
+      kick(reason, code = 4001) { stats.kicks++; this.send({ t: 'kick', reason }); connection.close(code, reason); },
     };
     sessions.add(session);
     // A client that never says hello is not a client.
@@ -154,6 +254,7 @@ export async function startServer(userOptions = {}) {
   function onMessage(session, raw) {
     if (typeof raw !== 'string') return;                                  // binary frames are not part of this protocol
     if (raw.length > LIMITS.maxMessageBytes) { session.kick('Message too large.', 4009); return; }
+    stats.msgsIn++;
     const now = performance.now();
     if (now - session.msgWindow > 1000) { session.msgWindow = now; session.msgCount = 0; }
     if (++session.msgCount > MAX_MESSAGES_PER_SECOND) { session.kick('Too many messages.', 4008); return; }
@@ -180,13 +281,14 @@ export async function startServer(userOptions = {}) {
       case 'ab': { const a = parseAbility(msg); if (a) inst.handleAbility(player, a); break; }
       case 'ia': { const a = parseInteract(msg); if (a) inst.handleInteract(player, a); break; }
       case 'ping': { const p = parsePing(msg); if (p) session.send({ t: 'pong', c: p.c, s: Math.round(manager.nowMs()) }); break; }
-      case 'chat': case 'party': case 'social': case 'emote': social.handle(player, msg); break;
+      case 'chat': case 'party': case 'social': case 'emote': case 'pvp': social.handle(player, msg); break;
       default:
         gameData.callHook('message', session, player, msg);
     }
   }
 
   async function handleHello(session, msg) {
+    if (admin && admin.shuttingDown) { stats.rejected++; session.send(reject('The server is restarting. Please try again in a minute.')); session.connection.close(4010, 'restarting'); return; }
     const { hello, error } = parseHello(msg);
     if (error) { session.send(reject(error)); session.connection.close(4005, 'bad hello'); return; }
     session.hello = hello;
@@ -215,7 +317,7 @@ export async function startServer(userOptions = {}) {
       const name = uniqueName(hello.name || `Player${session.playerId.slice(1)}`);
       const config = { ...(gameData.callHook('playerConfig', { name, class: hello.class, hello }) || {}), name };
       await manager.join(session, { mapPath, config });
-      log(`${name} joined ${session.instance.id} (${manager.playerCount} online)`);
+      stats.joins++; log(`${name} joined ${session.instance.id} (${manager.playerCount} online)`);
     } catch (err) {
       log(`join failed: ${err.stack || err.message}`);
       session.send(reject('Could not join the game: ' + err.message));
@@ -254,7 +356,7 @@ export async function startServer(userOptions = {}) {
         feet: pos && mapPath === pos.map ? pos.feet : undefined, yaw: pos ? pos.yaw : undefined,
         character: { id: c.id, accountId: c.accountId, name: c.name },
       });
-      log(`${c.name} (account ${account.name}) joined ${session.instance.id} (${manager.playerCount} online)`);
+      stats.joins++; log(`${c.name} (account ${account.name}) joined ${session.instance.id} (${manager.playerCount} online)`);
     } catch (err) {
       const known = err instanceof CharacterError;
       if (!known) log(`join failed: ${err.stack || err.message}`);
@@ -296,12 +398,14 @@ export async function startServer(userOptions = {}) {
   const port = httpServer.address().port;
   log(`${options.name}: http://localhost:${port}/  (${startMap})`);
 
-  return {
-    port, manager, gameData, options, sessions, status, store, auth, characters, persistence,
+  const handle = {
+    port, manager, gameData, options, sessions, status, store, auth, characters, persistence, admin, stats,
     economy: manager.economy, social,
     async close() {
       stopped = true;
       clearTimeout(timer);
+      clearInterval(backupTimer);
+      if (admin.shuttingDown) clearTimeout(admin.shuttingDown.timer);
       ws.stop();
       social.stop();
       // Everyone's character is on disk before the doors close.
@@ -311,6 +415,7 @@ export async function startServer(userOptions = {}) {
       if (store) await store.close();
     },
   };
+  return handle;
 }
 
 const round = (n) => Math.round(n * 100) / 100;
@@ -334,6 +439,14 @@ function parseArgs(argv) {
     else if (a === '--store') o.store = { kind: next() };
     else if (a === '--data') o.store = { ...(o.store || {}), path: path.resolve(next()) };
     else if (a === '--trust-proxy') o.trustProxy = true;
+    else if (a === '--server-config') o.serverConfig = path.resolve(next());
+    else if (a === '--admin-token') o.adminToken = next();
+    else if (a === '--console') o.console = true;
+    else if (a === '--log-json') o.logJson = true;
+    else if (a === '--backup-dir') o.backupDir = path.resolve(next());
+    else if (a === '--backup-minutes') o.backupIntervalMinutes = parseFloat(next());
+    else if (a === '--backup-keep') o.backupKeep = parseInt(next(), 10);
+    else if (a === '--restore') o.restore = path.resolve(next());
     else if (a === '--help' || a === '-h') {
       console.log(`Fount online server
 
@@ -351,6 +464,17 @@ function parseArgs(argv) {
   --store <kind>      auto | sqlite | file | memory (default auto)
   --data <path>       Where the store lives (default <root>/data)
   --trust-proxy       Believe X-Forwarded-For (only behind a proxy you run)
+  --server-config <f> A JSON file of these options (flags and FOUNT_* variables override it)
+  --admin-token <s>   16+ characters: turns on POST /admin and protects /metrics (or set FOUNT_ADMIN_TOKEN)
+  --console           Read admin commands from this terminal (on by default when it is a terminal)
+  --log-json          One JSON object per log line
+  --backup-dir <dir>  Where backups go (default <root>/data/backups)
+  --backup-minutes <n>  Backup interval; 0 turns scheduled backups off (default 60)
+  --backup-keep <n>   How many backups to keep (default 14)
+  --restore <backup>  Put a backup in place as the store, then exit. Stop the server first.
+
+  Environment: FOUNT_PORT FOUNT_HOST FOUNT_ROOT FOUNT_NAME FOUNT_CONFIG FOUNT_AUTH FOUNT_STORE FOUNT_DATA
+               FOUNT_MAX_PLAYERS FOUNT_ADMIN_TOKEN FOUNT_LOG_JSON FOUNT_TRUST_PROXY FOUNT_BACKUP_MINUTES FOUNT_BACKUP_KEEP
 `);
       process.exit(0);
     }
@@ -358,8 +482,68 @@ function parseArgs(argv) {
   return o;
 }
 
+/** Options from the environment, for containers and service managers. */
+export function optionsFromEnv(env = process.env) {
+  const o = {};
+  const num = (v) => (v === undefined || v === '' ? undefined : Number(v));
+  const flag = (v) => v === '1' || v === 'true';
+  if (env.FOUNT_ROOT) o.root = path.resolve(env.FOUNT_ROOT);
+  if (env.FOUNT_PORT) o.port = num(env.FOUNT_PORT);
+  if (env.FOUNT_HOST) o.host = env.FOUNT_HOST;
+  if (env.FOUNT_NAME) o.name = env.FOUNT_NAME;
+  if (env.FOUNT_CONFIG) o.config = env.FOUNT_CONFIG;
+  if (env.FOUNT_AUTH) o.auth = env.FOUNT_AUTH;
+  if (env.FOUNT_STORE) o.store = { kind: env.FOUNT_STORE };
+  if (env.FOUNT_DATA) o.store = { ...(o.store || {}), path: path.resolve(env.FOUNT_DATA) };
+  if (env.FOUNT_MAX_PLAYERS) o.maxPlayers = num(env.FOUNT_MAX_PLAYERS);
+  if (env.FOUNT_ADMIN_TOKEN) o.adminToken = env.FOUNT_ADMIN_TOKEN;
+  if (env.FOUNT_LOG_JSON) o.logJson = flag(env.FOUNT_LOG_JSON);
+  if (env.FOUNT_TRUST_PROXY) o.trustProxy = flag(env.FOUNT_TRUST_PROXY);
+  if (env.FOUNT_BACKUP_MINUTES) o.backupIntervalMinutes = num(env.FOUNT_BACKUP_MINUTES);
+  if (env.FOUNT_BACKUP_KEEP) o.backupKeep = num(env.FOUNT_BACKUP_KEEP);
+  return o;
+}
+
+async function main() {
+  const flags = parseArgs(process.argv.slice(2));
+  let fromFile = {};
+  if (flags.serverConfig) fromFile = JSON.parse(fs.readFileSync(flags.serverConfig, 'utf8'));
+  const options = { ...fromFile, ...optionsFromEnv(), ...flags };
+  const root = options.root || DEFAULTS.root;
+
+  if (options.restore) {
+    const dataDir = (options.store && options.store.path) || path.join(root, 'data');
+    const target = restoreBackup({ backup: options.restore, dataDir });
+    console.log(`Restored ${options.restore} to ${target}. The previous data was kept beside it as ".before-restore-*".`);
+    return;
+  }
+
+  const interactive = options.console ?? process.stdin.isTTY;
+  let handle = null;
+  let closing = false;
+  const exit = async (why) => {
+    if (closing) return;
+    closing = true;
+    console.log(`\n${why}: saving and shutting down...`);
+    try { if (handle) await handle.close(); } catch (err) { console.error(err.message); }
+    process.exit(0);
+  };
+  options.onExit = () => exit('Scheduled shutdown');
+  handle = await startServer(options);
+
+  // Ctrl-C and `docker stop`/systemd send these: warn, save everyone, then go. A second signal does not hurry it.
+  for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => exit(sig));
+
+  if (interactive) {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: 'fount> ' });
+    rl.on('line', async (line) => { const r = await handle.admin.run(line, 'console'); if (r.text) console.log(r.text); rl.prompt(); });
+    rl.on('close', () => { /* stdin closed: keep serving */ });
+    rl.prompt();
+  }
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  startServer(parseArgs(process.argv.slice(2))).catch((err) => {
+  main().catch((err) => {
     console.error(`\nCould not start the server: ${err.message}\n`);
     process.exit(1);
   });

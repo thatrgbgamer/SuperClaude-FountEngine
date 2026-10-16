@@ -77,6 +77,7 @@ export class CombatSystem {
       ability: ctx.ability ? ctx.ability.id : null,
       point: ctx.point || target.chest,
       ignoreResist: !!spec.ignoreResist,
+      threat: spec.threat ?? ctx.threat,
     };
     for (const mod of this.modifiers) mod(ev, source, target);
     target.takeDamage(ev);
@@ -382,6 +383,15 @@ export class CombatSystem {
       case 'melee': this.melee(source, effect, ctx); break;
       case 'projectile': this.projectile(source, effect, ctx); break;
       case 'area': this.area(source, effect, ctx); break;
+      case 'threat': {
+        // { type: 'threat', amount, mult, taunt } adds to, scales or takes the top of the target's threat table.
+        const t = effect.self ? source : target;
+        if (t && t.ai && source) {
+          if (effect.taunt) t.ai.taunt(source);
+          t.ai.addThreat(source, effect.amount ?? 0, effect.mult ?? 1);
+        }
+        break;
+      }
       case 'knockback':
         if (target) this.knockback(target, source ? source.feet : ctx.point, effect.strength ?? 8);
         break;

@@ -399,6 +399,8 @@ export class NetSession extends Emitter {
       case 'reject': this.emit('reject', msg.reason); break;
       case 'chat': this.emit('chat', msg); break;
       case 'party': this.emit('party', msg); break;
+      case 'pvp': this.emit('pvp', msg); break;
+      case 'pvp': this.emit('pvp', msg); break;
       default: this.emit('message', msg);
     }
   }

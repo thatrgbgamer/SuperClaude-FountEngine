@@ -6,7 +6,7 @@
 
 import { Emitter } from './events.js';
 import { Actor } from './actor.js';
-import { AIController } from './ai.js';
+import { AIController, wireThreat } from './ai.js';
 import { CombatSystem, Relations } from './combat.js';
 import { AbilitySystem } from './abilities.js';
 import { NavGrid } from './nav.js';
@@ -33,6 +33,8 @@ export class ActorSystem {
     this.combat = new CombatSystem(this);
     this.abilities = new AbilitySystem(this, options.abilityDefs);
     this.time = 0;
+    this.pvp = options.pvp || null;                // see pvp.js: who may hurt whom among players
+    wireThreat(this);
   }
 
   /** The baked walkable grid. Built on first use, so maps with no AI never pay for it. */

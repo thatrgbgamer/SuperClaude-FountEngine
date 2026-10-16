@@ -159,11 +159,28 @@ export class Actor extends Emitter {
   /** Product of one multiplier across every active status (per stack). */
   statMult(key) {
     let m = 1;
+    if (this.scaleMods) for (const mods of this.scaleMods.values()) if (mods[key] !== undefined) m *= mods[key];
     for (const s of this.statuses) {
       const v = s.def.mods && s.def.mods[key];
       if (v !== undefined) m *= Math.pow(v, s.stacks);
     }
     return m;
+  }
+
+  /**
+   * Scale this actor by a named layer: { hp, damageDealt, damageTaken, speed }, each a multiplier.
+   * A boss scaled for a bigger group, or a high-level player sidekicked down in a low-level area. Layers
+   * multiply; pass null to remove one. Health keeps its fraction, and saves record the unscaled values.
+   */
+  setScale(key, mods) {
+    if (!this.scaleMods) this.scaleMods = new Map();
+    if (this.baseMaxHealth === undefined) this.baseMaxHealth = this.maxHealth;
+    if (mods) this.scaleMods.set(key, mods); else this.scaleMods.delete(key);
+    let hp = 1;
+    for (const m of this.scaleMods.values()) if (m.hp !== undefined) hp *= m.hp;
+    const frac = this.maxHealth > 0 ? this.health / this.maxHealth : 1;
+    this.maxHealth = Math.max(1, Math.round(this.baseMaxHealth * hp));
+    if (!this.dead) this.health = Math.min(this.maxHealth, Math.max(1, Math.round(frac * this.maxHealth)));
   }
 
   resistance(type) {
@@ -185,7 +202,12 @@ export class Actor extends Emitter {
   }
   canCast() { return this.canAct() && !this.hasFlag('silence') && !this.casting && this.clock >= this.busyUntil; }
 
-  isHostile(other) { return !!this.system && this.system.relations.hostile(this.faction, other.faction) && other !== this; }
+  isHostile(other) {
+    if (!this.system || other === this) return false;
+    // Two players are friends unless the map's PvP rules, or a duel, say otherwise.
+    if (this.kind === 'player' && other.kind === 'player') return !!this.system.pvp && this.system.pvp.hostile(this, other);
+    return this.system.relations.hostile(this.faction, other.faction);
+  }
 
   cooldownRemaining(id) { return Math.max(0, this.cooldowns[id] || 0); }
 
@@ -450,8 +472,8 @@ export class Actor extends Emitter {
   snapshot() {
     return {
       name: this.name,
-      health: this.health,
-      maxHealth: this.maxHealth,
+      health: this.baseMaxHealth !== undefined && this.maxHealth > 0 ? Math.max(1, Math.round(this.health * this.baseMaxHealth / this.maxHealth)) : this.health,
+      maxHealth: this.baseMaxHealth ?? this.maxHealth,
       resources: Object.fromEntries(Object.entries(this.resources).map(([k, r]) => [k, { ...r }])),
       stats: { ...this.stats },
       statuses: this.statuses.map((s) => ({ id: s.def.id, remaining: s.remaining, stacks: s.stacks })),
@@ -463,6 +485,7 @@ export class Actor extends Emitter {
   restore(snap) {
     if (!snap) return;
     this.maxHealth = snap.maxHealth ?? this.maxHealth;
+    this.baseMaxHealth = undefined;
     this.health = clamp(snap.health ?? this.health, 1, this.maxHealth);
     if (snap.resources) {
       for (const [k, r] of Object.entries(snap.resources)) this.resources[k] = { ...r };

@@ -19,6 +19,7 @@ import '../engine/entities.js';
 import '../engine/entities_rpg.js';
 import { Replicator, ClientView } from './replication.mjs';
 import { SpatialInterest } from './interest.mjs';
+import { Encounters } from './encounters.mjs';
 
 const MAX_REACH = 60;          // an aim point or target further than this from the caster is ignored
 const MAX_ABILITIES_PER_SECOND = 10;
@@ -47,7 +48,7 @@ export class ServerPlayer extends ActorPlayer {
     this.pendingEvents.push({ ty: 'note', n: name, d: payload });
   }
 
-  send(msg) { if (this.session) this.session.send(msg); }
+  send(msg) { if (this.session) this.view.bytes += this.session.send(msg) || 0; }
 
   /**
    * The command number the player's state corresponds to. Command numbers are
@@ -150,6 +151,7 @@ export class Instance {
       nav: { top: (start ? start.origin[1] : 0) + 2.5, ...(this.config.nav || {}) },
     });
 
+    this.encounters = new Encounters(this);
     this.worldState = {};          // free-form per-instance state for the game's scripts (a season, a boss flag)
     const instance = this;
     const particles = {
@@ -173,6 +175,7 @@ export class Instance {
       actors: this.actors,
       economy: this.manager.economy,
       parties: this.manager.social,
+      encounters: this.encounters,
       particles,
       sprites: this.gameData.sprites,
       events: this.bus,
@@ -272,6 +275,8 @@ export class Instance {
     player.character = info.character || null;      // { id, accountId, name }: set when the player is logged in
     this.players.push(player);
     this.emptySince = null;
+    this.encounters.sidekickPlayer(player);
+    this.encounters.refresh();
     this.gameData.callHook('playerJoined', this, player, info);
     this.manager.events.emit('player-joined', player, this);
     return player;
@@ -283,7 +288,9 @@ export class Instance {
     // Told while the actor still exists, so the character can be saved as it is.
     this.manager.events.emit('player-left', player, this);
     this.gameData.callHook('playerLeft', this, player);
+    this.encounters.playerLeft(player);
     this.players.splice(i, 1);
+    this.encounters.refresh();
     this.world.forgetPlayer(player.id);
     this.actors.remove(player.actor);
     if (!this.players.length) this.emptySince = Date.now();
@@ -361,6 +368,7 @@ export class Instance {
       this.world.update(SIM_DT);
       this.actors.update(SIM_DT);
     }
+    this.encounters.update(STEPS_PER_COMMAND * SIM_DT);
     this.replicator.beginTick(this.tickNo);
     for (const p of this.players) {
       if (p.disconnectedAt !== null) continue;       // lingering after a dropped connection: nobody to send to

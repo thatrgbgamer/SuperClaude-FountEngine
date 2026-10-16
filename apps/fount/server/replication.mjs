@@ -20,6 +20,7 @@ export class ClientView {
     this.dataStr = null;            // last actor.data sent (own actor only)
     this.hotbarStr = null;
     this.hadProjectiles = false;
+    this.bytes = 0;                 // total sent to this client, for the admin's dump
     this.deferred = 0;              // actor updates the budget held back last tick
   }
 }

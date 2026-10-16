@@ -267,6 +267,8 @@ export class OnlineLink {
     session.on('entity-remove', (id) => this.deliver(() => this.onEntityRemove(id)));
     session.on('chat', (m) => game.chat.receive(m));
     session.on('party', (m) => game.parties.receive(m));
+    session.on('pvp', (m) => game.pvp.receive(m));
+    session.on('pvp', (m) => game.pvp.receive(m));
     session.on('denied', (m) => game.events.emit('ability-failed', { id: m.id, reason: m.reason, actor: session.self }));
     session.on('close', (info) => this.onClose(info));
   }

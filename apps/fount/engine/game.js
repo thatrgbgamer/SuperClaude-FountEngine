@@ -26,7 +26,7 @@ import { ParticleSystem, FloatingTexts } from './particles.js';
 import { createPlayer, stepTopDownPlayer } from './rpg_player.js';
 import { OnlineLink, ReplicaActors, OnlinePlayer } from './online.js';
 import { Economy } from './economy.js';
-import { ChatClient, PartyClient } from './social_client.js';
+import { ChatClient, PartyClient, PvpClient } from './social_client.js';
 import { NamePlates } from './nameplates.js';
 
 // Single source of truth, shared with the ragdoll solver: impulses convert
@@ -212,6 +212,7 @@ export class Game {
     this.transitioning = false;
     this.chat = new ChatClient(this);
     this.parties = new PartyClient(this);
+    this.pvp = new PvpClient(this);
     this.nameplates = new NamePlates(this);
     this.online = null;              // an OnlineLink while playing on a server
     this.arrival = null;
@@ -340,6 +341,7 @@ export class Game {
       // The same call a server's scripts make; single player just keeps no ledger.
       economy: new Economy({ goldField: (cfg.server || {}).goldField }),
       // Alone there is no party: a share is the whole amount, and the only member is the player.
+      encounters: { dropLoot: (entity) => [this.world.spawn(entity)] },
       parties: {
         membersNear: (player) => [player],
         shareXp: (player, total, apply) => { apply(player, Math.floor(total)); return [player]; },
