@@ -24,6 +24,7 @@ import { Auth } from './auth.mjs';
 import { CharacterService, Persistence, CharacterError } from './characters.mjs';
 import { createApi } from './api.mjs';
 import { Economy } from '../engine/economy.js';
+import { Social } from './social.mjs';
 import { LIMITS, COMMAND_HZ, PROTOCOL_VERSION, parseHello, parseCommand, parseAbility, parseInteract, parsePing, reject } from '../engine/protocol.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -96,6 +97,9 @@ export async function startServer(userOptions = {}) {
         .catch((err) => log(`could not log a transaction: ${err.message}`));
     },
   });
+  const social = new Social({ manager, gameData, store, log });
+  manager.social = social;
+  social.start();
   const loggingIn = new Set();
 
   const sessions = new Set();
@@ -176,6 +180,7 @@ export async function startServer(userOptions = {}) {
       case 'ab': { const a = parseAbility(msg); if (a) inst.handleAbility(player, a); break; }
       case 'ia': { const a = parseInteract(msg); if (a) inst.handleInteract(player, a); break; }
       case 'ping': { const p = parsePing(msg); if (p) session.send({ t: 'pong', c: p.c, s: Math.round(manager.nowMs()) }); break; }
+      case 'chat': case 'party': case 'social': case 'emote': social.handle(player, msg); break;
       default:
         gameData.callHook('message', session, player, msg);
     }
@@ -293,11 +298,12 @@ export async function startServer(userOptions = {}) {
 
   return {
     port, manager, gameData, options, sessions, status, store, auth, characters, persistence,
-    economy: manager.economy,
+    economy: manager.economy, social,
     async close() {
       stopped = true;
       clearTimeout(timer);
       ws.stop();
+      social.stop();
       // Everyone's character is on disk before the doors close.
       if (persistence) { await persistence.saveAll('shutdown'); persistence.stop(); }
       for (const s of sessions) { try { s.connection.close(1001, 'server shutting down'); } catch { /* gone */ } }

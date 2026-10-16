@@ -26,6 +26,8 @@ import { ParticleSystem, FloatingTexts } from './particles.js';
 import { createPlayer, stepTopDownPlayer } from './rpg_player.js';
 import { OnlineLink, ReplicaActors, OnlinePlayer } from './online.js';
 import { Economy } from './economy.js';
+import { ChatClient, PartyClient } from './social_client.js';
+import { NamePlates } from './nameplates.js';
 
 // Single source of truth, shared with the ragdoll solver: impulses convert
 // force to a verlet position offset using this exact value, so the two drifting
@@ -208,6 +210,9 @@ export class Game {
     this.frameDt = 0;
     this.fade = { alpha: 0, target: 0, speed: 4, resolve: null };
     this.transitioning = false;
+    this.chat = new ChatClient(this);
+    this.parties = new PartyClient(this);
+    this.nameplates = new NamePlates(this);
     this.online = null;              // an OnlineLink while playing on a server
     this.arrival = null;
     this.lastArrival = null;
@@ -334,6 +339,11 @@ export class Game {
       players: [this.player],
       // The same call a server's scripts make; single player just keeps no ledger.
       economy: new Economy({ goldField: (cfg.server || {}).goldField }),
+      // Alone there is no party: a share is the whole amount, and the only member is the player.
+      parties: {
+        membersNear: (player) => [player],
+        shareXp: (player, total, apply) => { apply(player, Math.floor(total)); return [player]; },
+      },
       travel: (player, map, landmark) => this.travel(map, landmark),
       listener: () => this.player.eyePosition,
       registerDynamicBrush: (brush) => this.dynamicBrushes.push(brush),
@@ -377,6 +387,7 @@ export class Game {
   /** Leave the server and go back to single-player: the next load() runs everything locally again. */
   goOffline() {
     if (this.online) { this.online.close(); this.online = null; }
+    this.parties.clear();
     this.transitioning = false;
   }
 
@@ -1066,6 +1077,7 @@ export class Game {
     this.actors.draw(this.renderer, yaw, alpha);
     this.particles.draw(this.renderer);
     this.floatText.draw(this.renderer);
+    if (this.online) this.nameplates.draw(this.renderer);
     this.ragdolls.draw(this.renderer, false, alpha);
     if (this.net) this.net.draw(this.renderer, false);
     this.renderer.endFrame();

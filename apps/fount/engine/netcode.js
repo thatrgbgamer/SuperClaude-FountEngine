@@ -397,6 +397,8 @@ export class NetSession extends Emitter {
       case 'denied': this.emit('denied', msg); break;
       case 'travel': this.emit('travel', msg); break;
       case 'reject': this.emit('reject', msg.reason); break;
+      case 'chat': this.emit('chat', msg); break;
+      case 'party': this.emit('party', msg); break;
       default: this.emit('message', msg);
     }
   }
@@ -517,6 +519,7 @@ export class NetSession extends Emitter {
   interact(entityId) { this.send({ t: 'ia', e: entityId }); }
 
   chat(text, channel = 'say', to = '') { this.send({ t: 'chat', text, ch: channel, to }); }
+  emote(id) { this.send({ t: 'emote', id }); }
 
   // ---- per frame: where to draw everything --------------------------------------------
 

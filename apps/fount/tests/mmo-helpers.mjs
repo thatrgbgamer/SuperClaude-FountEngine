@@ -94,6 +94,10 @@ export class Bot {
     this.session.on('denied', (m) => this.denied.push(m));
     this.session.on('travel', (m) => this.travels.push(m));
     this.session.on('welcome', (w) => { this.welcomes.push(w); this.attach(w); });
+    this.chats = [];
+    this.partyMsgs = [];
+    this.session.on('chat', (m) => this.chats.push(m));
+    this.session.on('party', (m) => this.partyMsgs.push(m));
     this.entityStates = new Map();
     this.entitySpawns = [];
     this.entityRemoves = [];
@@ -134,5 +138,8 @@ export class Bot {
   get self() { return this.session.self; }
   get feet() { return this.session.self ? this.session.self.pos : null; }
   actorNamed(name) { return [...this.session.actors.values()].find((a) => a.name === name) || null; }
+  get party() { const m = [...this.partyMsgs].reverse().find((x) => x.ev === 'state'); return m ? m.party : null; }
+  say(text, ch = 'say', to = '') { this.session.chat(text, ch, to); }
+  partyOp(op, name = '') { this.session.send({ t: 'party', op, name }); }
   eventsOf(type) { return this.events.filter((e) => e.ty === type); }
 }

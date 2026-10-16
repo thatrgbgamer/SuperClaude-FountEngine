@@ -172,6 +172,7 @@ export class Instance {
       collision: this.collision,
       actors: this.actors,
       economy: this.manager.economy,
+      parties: this.manager.social,
       particles,
       sprites: this.gameData.sprites,
       events: this.bus,
