@@ -314,6 +314,23 @@ export class GameConsole {
       return `connecting to ${g.net.url}`;
     }, { usage: '[host[:port]]' });
 
+    // Top-down games run their own protocol (see multiplayer.md); `connect` above is the first-person one.
+    this.register('online', 'Join a top-down game server (default: the one hosting this page)', (args) => {
+      const g = game();
+      const url = normaliseServerUrl(args[0] || location.host);
+      g.playOnline(url, { hello: { name: args[1] } })
+        .then(() => this.print('joined ' + url))
+        .catch((e) => this.error(e.message));
+      return `connecting to ${url}...`;
+    }, { usage: '[host[:port]] [name]' });
+
+    this.register('offline', 'Leave an online top-down game', () => {
+      const g = game();
+      if (!g.online) return 'Not playing online.';
+      g.goOffline();
+      return 'left the server (reload the map to play offline)';
+    });
+
     this.register('disconnect', 'Leave the current server', () => {
       const g = game();
       if (!g.net || !g.net.connected) return 'Not connected.';

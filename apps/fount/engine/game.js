@@ -21,9 +21,10 @@ import { TopDownCamera, rayPlaneY } from './camera.js';
 import { ActorSystem } from './actors.js';
 import { Relations } from './combat.js';
 import { AbilitySystem } from './abilities.js';
-import { defineStatuses } from './actor.js';
+import { loadAssets, mergeConfig, pickMapConfig } from './assets.js';
 import { ParticleSystem, FloatingTexts } from './particles.js';
-import { ActorPlayer, stepTopDownPlayer } from './rpg_player.js';
+import { createPlayer, stepTopDownPlayer } from './rpg_player.js';
+import { OnlineLink, ReplicaActors, OnlinePlayer } from './online.js';
 
 // Single source of truth, shared with the ragdoll solver: impulses convert
 // force to a verlet position offset using this exact value, so the two drifting
@@ -137,25 +138,6 @@ async function fetchJson(url) {
   }
 }
 
-// Sections that merge key by key when a map overrides the game's config;
-// everything else the map says replaces the game's value outright.
-const MERGED_SECTIONS = ['camera', 'render', 'player', 'nav'];
-
-function mergeConfig(base, over) {
-  const out = { ...base, ...over };
-  for (const k of MERGED_SECTIONS) if (base[k] || over[k]) out[k] = { ...(base[k] || {}), ...(over[k] || {}) };
-  return out;
-}
-
-/** The parts of a map document that configure the engine rather than describe geometry. */
-function pickMapConfig(doc) {
-  const out = {};
-  for (const k of ['mode', 'camera', 'render', 'player', 'nav', 'sprites', 'spriteDefs', 'abilities', 'statuses', 'particles', 'relations']) {
-    if (doc[k] !== undefined) out[k] = doc[k];
-  }
-  return out;
-}
-
 // Ray vs axis-aligned box, used for hitscan against NPC bodies.
 function rayBox(origin, dir, min, max) {
   let tmin = 0, tmax = Infinity;
@@ -225,6 +207,7 @@ export class Game {
     this.frameDt = 0;
     this.fade = { alpha: 0, target: 0, speed: 4, resolve: null };
     this.transitioning = false;
+    this.online = null;              // an OnlineLink while playing on a server
     this.arrival = null;
     this.lastArrival = null;
     this.input.load();
@@ -245,6 +228,7 @@ export class Game {
    * brings the player's state along.
    */
   async load(mapUrl, options = {}) {
+    this.goOffline();   // loading a map yourself means playing locally
     const doc = await loadMap(mapUrl);
     await this.loadAssets(pickMapConfig(doc));
     this.currentMapPath = mapUrl;
@@ -265,37 +249,12 @@ export class Game {
     return cfg;
   }
 
-  async resolveData(x) { return typeof x === 'string' ? fetchJson(x) : x; }
-
   /** Sprites, abilities, statuses and particle presets: a URL to a JSON file, or the data inline. */
   async loadAssets(cfg) {
-    for (const src of [].concat(cfg.sprites || [])) {
-      const key = typeof src === 'string' ? src : `inline:${JSON.stringify(src)}`;
-      if (this.assetsLoaded.has(key)) continue;
-      const data = typeof src === 'string' ? await fetchJson(src) : src;
-      this.sprites.registerAll([].concat(data.sprites || data));
-      this.assetsLoaded.add(key);
-    }
-    for (const def of cfg.spriteDefs || []) {
-      const key = `inline:${JSON.stringify(def)}`;
-      if (this.assetsLoaded.has(key)) continue;
-      this.sprites.register(def);
-      this.assetsLoaded.add(key);
-    }
-    const once = async (name, value, apply) => {
-      if (value === undefined) return;
-      const key = typeof value === 'string' ? value : `inline:${name}:${JSON.stringify(value)}`;
-      if (this.assetsLoaded.has(key)) return;
-      apply(await this.resolveData(value));
-      this.assetsLoaded.add(key);
-    };
-    await once('abilities', cfg.abilities, (d) => this.abilityRegistry.define(d.abilities || d));
-    await once('statuses', cfg.statuses, (d) => defineStatuses(d.statuses || d));
-    await once('particles', cfg.particles, (d) => this.particles.defineAll(d.particles || d));
-    if (cfg.relations) for (const [pair, state] of Object.entries(cfg.relations)) {
-      const [a, b] = pair.split('|');
-      this.relations.set(a, b, state);
-    }
+    await loadAssets(cfg, {
+      fetchJson, sprites: this.sprites, abilities: this.abilityRegistry, relations: this.relations,
+      particles: this.particles, loaded: this.assetsLoaded,
+    });
   }
 
   loadMapDocument(doc) {
@@ -369,48 +328,138 @@ export class Game {
       events: this.events,
       materialIndex: built.materialIndex,
       player: this.player,
+      // The one local player, in the same array shape an online server uses, so
+      // an entity written for many players works unchanged in single player.
+      players: [this.player],
+      travel: (player, map, landmark) => this.travel(map, landmark),
       listener: () => this.player.eyePosition,
       registerDynamicBrush: (brush) => this.dynamicBrushes.push(brush),
       findTriggerBrush: (name) => built.triggerBrushes.find((t) => t.name === name),
       game: this,
     });
 
-    for (const data of built.entities) this.world.spawn(data);
+    // Map entities get their position in the file as their id, so a server and its
+    // clients agree on which entity is which without sending the list.
+    built.entities.forEach((data, i) => this.world.spawn(data, { id: i + 1 }));
+    this.world.finishMapSpawn();
     this.mapName = built.name;
     this.events.emit('map-loaded', { name: built.name, mode: this.mode, landmark: arrival ? arrival.landmark : null });
   }
 
+  // ---- playing on a server ---------------------------------------------------------
+
+  /**
+   * Join a Fount server. Resolves once the map the server put you in is loaded
+   * and you are standing in it. `options.hello` carries what the server asks for
+   * to identify you (name, token, character...). Rejects with a message fit to
+   * show a player. Leave with goOffline().
+   *
+   *   await game.loadConfig('game/game.json');
+   *   await game.playOnline('ws://localhost:8099', { hello: { name: 'Ada' } });
+   */
+  async playOnline(url, options = {}) {
+    this.goOffline();
+    const link = new OnlineLink(this, { url, hello: options.hello });
+    this.online = link;
+    try {
+      await link.connect(options.hello);
+    } catch (err) {
+      this.online = null;
+      link.close();
+      throw err;
+    }
+    return link;
+  }
+
+  /** Leave the server and go back to single-player: the next load() runs everything locally again. */
+  goOffline() {
+    if (this.online) { this.online.close(); this.online = null; }
+    this.transitioning = false;
+  }
+
+  /**
+   * Build the world for a map the server has put us in. The client keeps no
+   * simulation: it loads the same map files for the picture and for predicting
+   * its own movement, then shows whatever the server says is there.
+   */
+  async loadOnlineMap(link, welcome) {
+    const session = link.session;
+    const doc = await loadMap(welcome.map);
+    await this.loadAssets(pickMapConfig(doc));
+    this.currentMapPath = welcome.map;
+    this.mapDoc = doc;
+
+    const cfg = mergeConfig(this.config, pickMapConfig(doc));
+    this.mapConfig = cfg;
+    this.mode = 'topdown';
+    if (typeof document !== 'undefined' && document.pointerLockElement) document.exitPointerLock();
+
+    const built = buildMap(doc);
+    this.built = built;
+    this.collision = built.collision;
+    this.dynamicBrushes = [];
+    this.collision.setDynamicBrushes(this.dynamicBrushes);
+    this.renderer.configure(cfg.render);
+    this.renderer.setMaterials(built.materials);
+    this.renderer.setWorldMesh(built.meshData);
+    this.renderer.computeLightMatrix(built.env.sunDir, built.bounds);
+    this.env = built.env;
+    this.ragdolls.clear();
+    this.particles.clear();
+    this.floatText.clear();
+
+    this.actors = new ReplicaActors(this, session);
+    this.player = new OnlinePlayer(this, session, cfg.player || {});
+    this.player.notify = (name, payload) => this.events.emit(name, payload);
+    const res = this.renderer.pixel ? this.renderer.pixel.resolution : null;
+    this.topCamera = new TopDownCamera(cfg.camera || {}, res);
+    this.topCamera.cut(welcome.spawn);
+
+    this.world = new EntityWorld({
+      collision: this.collision,
+      actors: this.actors,
+      particles: this.particles,
+      sprites: this.sprites,
+      events: this.events,
+      materialIndex: built.materialIndex,
+      player: this.player,
+      players: [this.player],
+      travel: () => {},                       // a portal is the server's decision
+      listener: () => this.player.eyePosition,
+      registerDynamicBrush: (brush) => this.dynamicBrushes.push(brush),
+      findTriggerBrush: (name) => built.triggerBrushes.find((t) => t.name === name),
+      game: this,
+    }, { side: 'client' });
+    built.entities.forEach((data, i) => this.world.spawn(data, { id: i + 1 }));
+    this.world.finishMapSpawn();
+
+    session.attachWorld(this.collision);
+    this.mapName = built.name;
+    this.events.emit('map-loaded', { name: built.name, mode: this.mode, online: true, instance: welcome.instance, landmark: null });
+  }
+
+  /** One physics step while online: read input, predict our own movement, send it, animate the rest. */
+  stepOnline(dt) {
+    const P = this.player;
+    stepTopDownPlayer(this, dt);
+    if (this.online.ready) {
+      const A = P.actor;
+      this.online.session.step(dt, { mv: A.intent.move, f: A.intent.face });
+    }
+    this.world.update(dt);
+    this.actors.update(dt);
+    this.particles.update(dt);
+    this.floatText.update(dt);
+  }
+
   createTopDownPlayer(feet, yaw, carry) {
-    const cfg = this.mapConfig.player || {};
-    const r = (yaw * Math.PI) / 180;
-    const actor = this.actors.spawn({
-      name: cfg.name ?? 'Player',
-      kind: 'player',
-      faction: cfg.faction ?? 'player',
-      feet,
-      health: cfg.health ?? 100,
-      resources: cfg.resources,
-      stats: cfg.stats,
-      resist: cfg.resist,
-      speed: cfg.speed ?? 5,
-      radius: cfg.radius ?? 0.35,
-      height: cfg.height ?? 1.7,
-      mass: cfg.mass ?? 3,
-      sprite: cfg.sprite,
-      spriteScale: cfg.spriteScale ?? 1,
-      facing: [Math.cos(r), -Math.sin(r)],
-      corpseTime: Infinity,
-    });
-    if (carry) actor.restore(carry);
-    const player = new ActorPlayer(actor, cfg);
-    player.spawnPoint = [...feet];
-    // The hotbar lives on the actor's data, so it travels with the character.
-    player.hotbar = actor.data.hotbar || [...(cfg.hotbar || [])];
-    actor.data.hotbar = player.hotbar;
+    const player = createPlayer(this.actors, this.mapConfig.player || {}, feet, yaw, carry);
+    player.notify = (name, payload) => this.events.emit(name, payload);
     return player;
   }
 
   respawnPlayer() {
+    if (this.online) return;   // the server decides when and where you come back
     this.player.respawn();
     if (this.topCamera) this.topCamera.cut(this.player.actor.feet);
     this.events.emit('respawn', this.player.actor);
@@ -522,13 +571,12 @@ export class Game {
     const f = P.actor.feet;
     let best = null, bestD = Infinity;
     for (const e of this.world.entities) {
-      if (e.removed || !e.enabled) continue;
-      const def = getEntityDefinition(e.classname);
-      if (!def || !def.interact) continue;
+      if (e.removed || !e.enabled || !this.world.isInteractive(e)) continue;
       const d = dist(f, e.origin);
       if (d < e.get('interactRadius', 2) && d < bestD) { best = e; bestD = d; }
     }
-    if (best) getEntityDefinition(best.classname).interact(best, this.world, P);
+    if (best && this.online) this.online.session.interact(best.id);
+    else if (best) this.world.interactWith(best, P);
     this.events.emit('interact', { entity: best, player: P });
   }
 
@@ -588,6 +636,18 @@ export class Game {
     ev.on('death', (a) => {
       if (this.player) playSoundAt(mine(a) ? 'die' : 'enemydie', a.feet, listener(), 40);
     });
+    // Generic notifications a script sends with player.notify(name, payload).
+    // 'toast' floats text over the local player; 'floatText' puts it at a position.
+    const floating = (e) => {
+      const A = this.player && this.player.actor;
+      const at = e.pos || (A && [A.feet[0], A.feet[1] + A.height + 0.9, A.feet[2]]);
+      if (!at) return;
+      this.floatText.spawn(e.text, at, {
+        color: e.color || [1, 0.94, 0.63], life: e.life ?? 2.2, rise: e.rise ?? 0.8, scale: e.scale ?? 2, outline: e.outline || [0.05, 0.03, 0.03],
+      });
+    };
+    ev.on('toast', floating);
+    ev.on('floatText', floating);
     ev.on('fx', (e) => this.particles.burst(e.preset, e.pos, { count: e.count }));
     ev.on('sound', (e) => {
       if (e.pos && this.player) playSoundAt(e.name, e.pos, listener(), 45);
@@ -881,6 +941,7 @@ export class Game {
   }
 
   stepTopDown(dt) {
+    if (this.online) { this.stepOnline(dt); return; }
     stepTopDownPlayer(this, dt);
     this.world.update(dt);
     this.actors.update(dt);
@@ -965,6 +1026,8 @@ export class Game {
     this.renderAspect = aspect;
     const player = this.player;
     const alpha = this.renderAlpha ?? 1;
+
+    if (this.online && this.online.ready) this.online.session.updateRender(this.frameDt);
 
     let camera, yaw;
     if (this.mode === 'topdown' && this.topCamera) {

@@ -123,6 +123,7 @@
     <div class="row">
       <select id="map-select"></select>
       <button class="primary" id="play">Play</button>
+      <button id="play-online" title="Join the server hosting this page (a top-down map pack run with server/mmo.mjs)">Play online</button>
       <button id="open-editor">Open editor</button>
     </div>
   </div>
@@ -219,6 +220,20 @@ async function play() {
 }
 
 document.getElementById('play').addEventListener('click', play);
+
+// Online play: join the server that is hosting this page (or ?online=host:port).
+async function playOnline(host) {
+  document.getElementById('menu').classList.add('hidden');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const name = new URLSearchParams(location.search).get('name') || undefined;
+  try {
+    await game.playOnline(/^wss?:/.test(host) ? host : `${proto}//${host}`, { hello: { name } });
+  } catch (err) {
+    document.getElementById('menu').classList.remove('hidden');
+    showError(err);
+  }
+}
+document.getElementById('play-online').addEventListener('click', () => playOnline(location.host));
 document.getElementById('open-editor').addEventListener('click', () => {
   window.location.href = 'editor/index.html';
 });
@@ -226,7 +241,9 @@ document.getElementById('open-editor').addEventListener('click', () => {
 // Autoload so a screenshot/CI run sees the game without clicking through.
 const params = new URLSearchParams(location.search);
 if (params.has('map')) select.value = params.get('map');
-if (params.has('autoplay')) {
+if (params.has('online')) {
+  playOnline(params.get('online') === '1' || params.get('online') === '' ? location.host : params.get('online'));
+} else if (params.has('autoplay')) {
   game.load(select.value)
     .then(() => document.getElementById('menu').classList.add('hidden'))
     .catch(showError);

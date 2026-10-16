@@ -20,20 +20,20 @@ function report(name, err, note) {
   }
 }
 
+// Tests run one after another, in the order they are written, so an async test
+// that opens sockets or changes a shared server never races the next one.
+let chain = Promise.resolve();
+
 export function test(name, fn) {
-  try {
-    const result = fn();
-    if (result && typeof result.then === 'function') {
-      pending.push(result.then(
-        (note) => report(name, null, typeof note === 'string' ? note : ''),
-        (err) => report(name, err),
-      ));
-    } else {
-      report(name, null, typeof result === 'string' ? result : '');
+  chain = chain.then(async () => {
+    try {
+      const note = await fn();
+      report(name, null, typeof note === 'string' ? note : '');
+    } catch (err) {
+      report(name, err);
     }
-  } catch (err) {
-    report(name, err);
-  }
+  });
+  pending.push(chain);
 }
 
 export function assert(cond, message = 'assertion failed') {

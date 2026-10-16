@@ -28,6 +28,7 @@ export class ActorSystem {
     this._nav = null;
     this.bus = options.bus || new Emitter();      // a game passes its own so listeners outlive any one map
     this.actors = [];
+    this.index = new Map();                       // actor id -> actor, for lookups by id from the network
     this.relations = options.relations || new Relations();
     this.combat = new CombatSystem(this);
     this.abilities = new AbilitySystem(this, options.abilityDefs);
@@ -55,6 +56,7 @@ export class ActorSystem {
    */
   spawn(options = {}) {
     const actor = new Actor(options);
+    actor.spriteName = options.sprite || null;    // clients draw from the name, whether or not this side has a library
     if (options.sprite && this.sprites) {
       actor.sprite = new SpriteInstance(this.sprites, options.sprite, { scale: options.spriteScale ?? 1 });
       actor.sprite.setHeading(actor.facing[0], actor.facing[1]);
@@ -66,6 +68,7 @@ export class ActorSystem {
   add(actor) {
     actor.system = this;
     this.actors.push(actor);
+    this.index.set(actor.id, actor);
     if (actor.ai) actor.ai.attach(this);
     this.bus.emit('spawn', actor);
     return actor;
@@ -74,14 +77,18 @@ export class ActorSystem {
   remove(actor) {
     const i = this.actors.indexOf(actor);
     if (i >= 0) this.actors.splice(i, 1);
+    this.index.delete(actor.id);
     actor.system = null;
     this.bus.emit('remove', actor);
   }
 
   clear() {
     this.actors.length = 0;
+    this.index.clear();
     this.combat.clear();
   }
+
+  getById(id) { return this.index.get(id) || null; }
 
   // ---- queries ---------------------------------------------------------------------
 

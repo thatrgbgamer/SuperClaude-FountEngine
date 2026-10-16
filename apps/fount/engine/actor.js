@@ -41,6 +41,20 @@ export function getStatusDef(id) { return STATUS_DEFS.get(id) || null; }
 
 let nextActorId = 1;
 
+/**
+ * One step of an actor's movement. The server, an online client predicting its
+ * own player, and a headless bot all call exactly this, which is what lets a
+ * client replay its recent inputs on top of the server's state and land on the
+ * same answer. `move` is [x, z] (magnitude up to 1) and `speed` the actor's
+ * current top speed.
+ */
+export function stepMovement(controller, collision, move, speed, dt) {
+  const mag = Math.min(1, Math.hypot(move[0], move[1]));
+  controller.maxSpeed = speed * (mag || 1);
+  if (collision) controller.update(collision, [move[0], 0, move[1]], false, dt);
+  return mag;
+}
+
 function normaliseResources(input = {}) {
   const out = {};
   for (const [name, spec] of Object.entries(input)) {
@@ -98,6 +112,10 @@ export class Actor extends Emitter {
     this.sprite = null;
     this.spriteScale = options.spriteScale ?? 1;
     this._action = null;
+    this.actionName = null;         // the last one-shot animation requested...
+    this.actionSeq = 0;             // ...and a counter, so a client can tell "attack again" from "still attacking"
+    this.publicData = {};           // plain data every nearby player sees (level, title): nameplates read this
+    this.movementPaused = false;    // a server sets this for a tick whose movement was already played (see ServerPlayer)
     this.lastAttacker = null;
     this.lastDamagedAt = -Infinity;
     this.ai = null;
@@ -338,6 +356,9 @@ export class Actor extends Emitter {
 
   /** Play a one-shot (attack, cast, hurt) that locomotion must not override until it ends. */
   playAction(name) {
+    // Recorded even with no sprite: a server has none, and tells clients which one-shot to play.
+    this.actionName = name;
+    this.actionSeq++;
     if (!this.sprite || !this.sprite.has(name)) return false;
     this.sprite.play(name, { restart: true });
     this._action = name;
@@ -398,11 +419,7 @@ export class Actor extends Emitter {
 
     // Movement.
     const move = this.canMove() ? this.intent.move : [0, 0];
-    const mag = Math.min(1, Math.hypot(move[0], move[1]));
-    this.controller.maxSpeed = this.speed * (mag || 1);
-    if (this.system) {
-      this.controller.update(this.system.collision, [move[0], 0, move[1]], false, dt);
-    }
+    const mag = this.movementPaused ? 0 : stepMovement(this.controller, this.system ? this.system.collision : null, move, this.speed, dt);
 
     // Facing: an explicit target wins, otherwise face where we are going.
     if (this.intent.face && (this.intent.face[0] || this.intent.face[1])) {

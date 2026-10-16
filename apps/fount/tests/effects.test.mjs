@@ -123,9 +123,10 @@ function level(entities, extraBrushes = []) {
   const actor = sys.spawn({ name: 'hero', kind: 'player', faction: 'player', feet: [0, 0, 0], health: 100 });
   const player = new ActorPlayer(actor);
   const travels = [];
-  const game = { mode: 'topdown', transitioning: false, cameraYaw: 45, travel: (m, l) => travels.push([m, l]) };
+  const game = { mode: 'topdown', transitioning: false, cameraYaw: 45 };
   const world = new EntityWorld({
-    collision: built.collision, actors: sys, particles, sprites, player, game, materialIndex: built.materialIndex,
+    collision: built.collision, actors: sys, particles, sprites, player, players: [player], game, materialIndex: built.materialIndex,
+    travel: (p, map, landmark) => travels.push([map, landmark]),
     findTriggerBrush: () => null, registerDynamicBrush: () => {}, listener: () => [0, 0, 0],
   });
   const spawned = entities.map((e) => world.spawn(e));

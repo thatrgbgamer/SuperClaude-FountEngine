@@ -24,6 +24,7 @@ export class ActorPlayer {
     this.target = null;            // the actor last clicked on
     this.moveTarget = null;        // click-to-move destination
     this.entity = null;
+    this.id = 'local';             // an online server gives every player a distinct id
     this.pathTimer = 0;
     this.path = null;
     this.pathIndex = 0;
@@ -32,6 +33,14 @@ export class ActorPlayer {
     actor.on('death', () => { this.respawnTimer = this.respawnDelay; this.moveTarget = null; this.deaths++; });
     actor.on('kill', () => { this.kills++; });
   }
+
+  /**
+   * Send this player a notification: 'toast', 'floatText', or anything a game
+   * defines. Offline it lands on game.events; online the server relays it to
+   * this player's client, which emits the same event there. Scripts call this
+   * rather than touching the HUD, so they run unchanged in both modes.
+   */
+  notify() {}
 
   // ---- the first-person Player surface ----------------------------------------
 
@@ -86,6 +95,41 @@ export class ActorPlayer {
     if (!result.ok) game.events.emit('ability-failed', { id, reason: result.reason, actor: this.actor });
     return result;
   }
+}
+
+/**
+ * Create a player's actor and wrap it in a player object. One function for the
+ * offline game and an online server, so a character is built identically in
+ * both. `make(actor, cfg)` builds the wrapper (ActorPlayer by default; a server
+ * passes its own subclass). `carry` is an actor snapshot to restore.
+ */
+export function createPlayer(actors, cfg, feet, yaw, carry, make = (actor, c) => new ActorPlayer(actor, c)) {
+  const r = (yaw * Math.PI) / 180;
+  const actor = actors.spawn({
+    name: cfg.name ?? 'Player',
+    kind: 'player',
+    faction: cfg.faction ?? 'player',
+    feet,
+    health: cfg.health ?? 100,
+    resources: cfg.resources,
+    stats: cfg.stats,
+    resist: cfg.resist,
+    speed: cfg.speed ?? 5,
+    radius: cfg.radius ?? 0.35,
+    height: cfg.height ?? 1.7,
+    mass: cfg.mass ?? 3,
+    sprite: cfg.sprite,
+    spriteScale: cfg.spriteScale ?? 1,
+    facing: [Math.cos(r), -Math.sin(r)],
+    corpseTime: Infinity,
+  });
+  if (carry) actor.restore(carry);
+  const player = make(actor, cfg);
+  player.spawnPoint = [...feet];
+  // The hotbar lives on the actor's data, so it travels with the character.
+  player.hotbar = actor.data.hotbar || [...(cfg.hotbar || [])];
+  actor.data.hotbar = player.hotbar;
+  return player;
 }
 
 /**

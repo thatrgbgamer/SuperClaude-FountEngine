@@ -1,0 +1,4 @@
+{
+  "name": "fount-test",
+  "server": { "startMap": "game/maps/test_topdown.json" }
+}
